@@ -1,0 +1,2 @@
+"0","dependent_variables$GDP_CAPITA.log <- log(dependent_variables$GDP_CAPITA)"
+"0","data$GDP_CAPITA.log <- log(dependent_variables$GDP_CAPITA)"

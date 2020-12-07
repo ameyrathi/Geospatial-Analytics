@@ -1,0 +1,5 @@
+"0","data_by_subzones$SHAPE_Area = NULL"
+"0","data_by_subzones$OBJECTID = NULL"
+"0","data_by_subzones$TOTAL = NULL"
+"0","rownames(data_by_subzones) <- data_by_subzones$subzone"
+"0","data_by_subzones$subzone <- NULL"

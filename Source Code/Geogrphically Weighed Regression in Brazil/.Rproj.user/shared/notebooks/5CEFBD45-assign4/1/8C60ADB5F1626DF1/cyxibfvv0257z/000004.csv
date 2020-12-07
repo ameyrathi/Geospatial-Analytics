@@ -1,0 +1,5 @@
+"0","data <- data %>%"
+"0","  mutate(TAX_CAPITA=TAXES/POP_GDP)"
+"0",""
+"0","data$TAXES <- NULL"
+"0","data$MUN_EXPENDIT <- NULL"

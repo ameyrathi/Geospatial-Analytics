@@ -1,0 +1,4 @@
+"0","ggplot() + aes(independent_variable.log)+"
+"0","  geom_histogram(bins = 20,"
+"0","                 color=""black"", "
+"0","                 fill=""light blue"")"

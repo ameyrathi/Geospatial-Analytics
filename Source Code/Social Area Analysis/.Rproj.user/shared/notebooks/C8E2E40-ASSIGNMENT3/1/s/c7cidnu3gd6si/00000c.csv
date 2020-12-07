@@ -1,0 +1,7 @@
+"0","st_geometry(private_by_subzone) <- NULL"
+"0","st_geometry(shopping_by_subzone) <- NULL"
+"0","st_geometry(business_by_subzone) <- NULL"
+"0","st_geometry(industry_by_subzone) <- NULL"
+"0","st_geometry(govt_by_subzone) <- NULL"
+"0","st_geometry(financial_by_subzone) <- NULL"
+"0","one$geometry <- NULL"

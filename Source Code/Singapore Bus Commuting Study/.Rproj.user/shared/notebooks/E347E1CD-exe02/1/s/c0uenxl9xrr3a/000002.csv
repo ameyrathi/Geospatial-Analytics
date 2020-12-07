@@ -1,0 +1,49 @@
+"0",""
+"0","sf_mpsz <- st_read(dsn = ""data/geospatial"", layer = ""MP14_SUBZONE_WEB_PL"")"
+"1","Reading layer `"
+"1","MP14_SUBZONE_WEB_PL"
+"1","' from data source `"
+"1","/Users/Amey/Desktop/Y2S2/IS415/week2/week2-exercise/data/geospatial"
+"1","' using driver `"
+"1","ESRI Shapefile"
+"1","'"
+"1","
+"
+"1","Simple feature collection with 323 features and 15 fields"
+"1","
+"
+"1","geometry type:  MULTIPOLYGON
+"
+"1","dimension:      XY
+"
+"1","bbox:           "
+"1","xmin: 2667.538 ymin: 15748.72 xmax: 56396.44 ymax: 50256.33"
+"1","
+"
+"1","proj4string:    +proj=tmerc +lat_0=1.366666666666667 +lon_0=103.8333333333333 +k=1 +x_0=28001.642 +y_0=38744.572 +datum=WGS84 +units=m +no_defs 
+"
+"0","st_crs(sf_mpsz)"
+"1","Coordinate Reference System:"
+"1","
+"
+"1","  No user input
+"
+"1","  wkt:
+"
+"1",""
+"1","PROJCS[""SVY21"",
+    GEOGCS[""SVY21[WGS84]"",
+        DATUM[""WGS_1984"",
+            SPHEROID[""WGS_84"",6378137.0,298.257223563]],
+        PRIMEM[""Greenwich"",0.0],
+        UNIT[""Degree"",0.0174532925199433]],
+    PROJECTION[""Transverse_Mercator""],
+    PARAMETER[""False_Easting"",28001.642],
+    PARAMETER[""False_Northing"",38744.572],
+    PARAMETER[""Central_Meridian"",103.8333333333333],
+    PARAMETER[""Scale_Factor"",1.0],
+    PARAMETER[""Latitude_Of_Origin"",1.366666666666667],
+    UNIT[""Meter"",1.0]]"
+"1",""
+"1","
+"

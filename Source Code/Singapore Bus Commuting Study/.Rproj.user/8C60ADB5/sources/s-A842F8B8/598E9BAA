@@ -1,0 +1,27 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1588875097653.000,
+    "dirty" : true,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "598E9BAA",
+    "lastKnownWriteTime" : 1588922608,
+    "last_content_update" : 1588924154175,
+    "path" : "~/Desktop/Y2S2/IS415/assign1/assignment1.Rmd",
+    "project_path" : "assignment1.Rmd",
+    "properties" : {
+        "cursorPosition" : "133,19",
+        "last_setup_crc32" : "A842F8B8bb338d19",
+        "scrollLine" : "120",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

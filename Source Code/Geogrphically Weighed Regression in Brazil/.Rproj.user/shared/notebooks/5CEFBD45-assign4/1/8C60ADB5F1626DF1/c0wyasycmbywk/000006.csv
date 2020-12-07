@@ -1,0 +1,3 @@
+"0","library(""ggpubr"")"
+"0","# Density plot"
+"0","ggdensity(gdp_capita.lmr$residuals, fill = ""lightgray"")"

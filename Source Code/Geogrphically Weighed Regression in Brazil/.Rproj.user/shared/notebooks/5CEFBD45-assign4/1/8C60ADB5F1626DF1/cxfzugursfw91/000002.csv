@@ -1,0 +1,7 @@
+"0","data <- data %>%"
+"0","  mutate(CAR_RATIO=Cars/POP_GDP) %>%"
+"0","  mutate(MOTORCYCLE_RATIO=Motorcycles/POP_GDP) "
+"0",""
+"0","data$POP_GDP <- NULL"
+"0","data$Cars <- NULL"
+"0","data$Motorcycles <- NULL"

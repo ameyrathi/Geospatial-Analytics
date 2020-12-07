@@ -1,0 +1,67 @@
+"0","airbnb <- read_csv(""data/aspatial/listings.csv"")"
+"2","Parsed with column specification:
+cols(
+  id = [32mcol_double()[39m,
+  name = [31mcol_character()[39m,
+  host_id = [32mcol_double()[39m,
+  host_name = [31mcol_character()[39m,
+  neighbourhood_group = [31mcol_character()[39m,
+  neighbourhood = [31mcol_character()[39m,
+  latitude = [32mcol_double()[39m,
+  longitude = [32mcol_double()[39m,
+  room_type = [31mcol_character()[39m,
+  price = [32mcol_double()[39m,
+  minimum_nights = [32mcol_double()[39m,
+  number_of_reviews = [32mcol_double()[39m,
+  last_review = [34mcol_date(format = """")[39m,
+  reviews_per_month = [32mcol_double()[39m,
+  calculated_host_listings_count = [32mcol_double()[39m,
+  availability_365 = [32mcol_double()[39m
+)
+"
+"0","singapore <- st_read(dsn = ""data/geospatial"", layer = ""CostalOutline"")"
+"1","Reading layer `"
+"1","CostalOutline"
+"1","' from data source `"
+"1","/Users/Amey/Desktop/Y2S2/IS415/assign2/data/geospatial"
+"1","' using driver `"
+"1","ESRI Shapefile"
+"1","'"
+"1","
+"
+"1","Simple feature collection with 60 features and 4 fields"
+"1","
+"
+"1","geometry type:  POLYGON
+"
+"1","dimension:      XY
+"
+"1","bbox:           "
+"1","xmin: 2663.926 ymin: 16357.98 xmax: 56047.79 ymax: 50244.03"
+"1","
+"
+"1","proj4string:    +proj=tmerc +lat_0=1.366666666666667 +lon_0=103.8333333333333 +k=1 +x_0=28001.642 +y_0=38744.572 +datum=WGS84 +units=m +no_defs 
+"
+"0","mpsz <- st_read(dsn = ""data/geospatial"", layer = ""MP14_SUBZONE_WEB_PL"")"
+"1","Reading layer `"
+"1","MP14_SUBZONE_WEB_PL"
+"1","' from data source `"
+"1","/Users/Amey/Desktop/Y2S2/IS415/assign2/data/geospatial"
+"1","' using driver `"
+"1","ESRI Shapefile"
+"1","'"
+"1","
+"
+"1","Simple feature collection with 323 features and 15 fields"
+"1","
+"
+"1","geometry type:  MULTIPOLYGON
+"
+"1","dimension:      XY
+"
+"1","bbox:           "
+"1","xmin: 2667.538 ymin: 15748.72 xmax: 56396.44 ymax: 50256.33"
+"1","
+"
+"1","proj4string:    +proj=tmerc +lat_0=1.366666666666667 +lon_0=103.8333333333333 +k=1 +x_0=28001.642 +y_0=38744.572 +datum=WGS84 +units=m +no_defs 
+"

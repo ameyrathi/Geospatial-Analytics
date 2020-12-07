@@ -1,0 +1,8 @@
+"0","data <- data %>%"
+"0","  mutate(DU_URBAN_PERCENTAGE = (IBGE_DU_URBAN/IBGE_DU)*100)"
+"0",""
+"0",""
+"0","data$IBGE_DU_RURAL <- NULL"
+"0","data$IBGE_DU_URBAN <- NULL"
+"0","data$IBGE_DU <- NULL"
+"0","data$DU_RURAL_PERCENTAGE<-NULL"

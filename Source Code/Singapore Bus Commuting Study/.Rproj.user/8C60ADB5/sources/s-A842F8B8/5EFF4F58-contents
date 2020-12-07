@@ -1,0 +1,199 @@
+---
+title: "exe6"
+author: "Amey Rathi"
+date: "5/7/2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Installing packages 
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rgdal', 'spdep',  'tmap', 'tidyverse')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+
+# Importing data 
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+hunan <- readOGR(dsn = "data/shapefile", layer = "Hunan")
+gdppc <- read_csv ("data/attributeTable/Hunan_GDPPC.csv")
+```
+
+# Join the data 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+hunan@data <- left_join(hunan@data,gdppc)
+```
+
+## Quick visualisation 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+qtm(hunan, "GDPPC2012")
+```
+
+# Performing cluster and outlier analysis using local moran statistics 
+
+## creating a weight matrix using queen contiguity 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+wm_q <- poly2nb(hunan,queen=TRUE)
+wm_q
+plot(hunan, border="lightgrey")
+plot(wm_q, coordinates(hunan), pch = 19, cex = 0.6, add = TRUE, col= "red")
+```
+## creating a row standardised matrix 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+rswm_q <- nb2listw(wm_q, zero.policy = TRUE)
+rswm_q
+```
+# Computing moran's I
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+fips <- order(hunan$County)
+localMI <- localmoran(hunan$GDPPC2012, rswm_q)
+printCoefmat(data.frame(localMI[fips,], row.names=hunan$County[fips]), check.names=FALSE)
+```
+
+# Mapping it!
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+hunan.localMI <- cbind(hunan, localMI)
+
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty", 
+          palette = "RdBu",
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+```
+## Mapping p-values 
+
+### each break (colour) is going to provide each confidence interval
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.z...0.", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Blues", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+```
+## Comparing moran's I and p-value 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+localMI.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty", 
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+
+pvalue.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.z...0.", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Blues", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(localMI.map, pvalue.map, asp=1, ncol=2)
+```
+## Analysing clusters and outliers
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+nci <- moran.plot(hunan$GDPPC2012, rswm_q, labels=as.character(hunan$County), xlab="GDPPC 2012", ylab="Spatially Lag GDPPC 2012")
+```
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+hunan$Z.GDPPC2012 <- scale(hunan$GDPPC2012) %>% as.vector 
+nci2 <- moran.plot(hunan$Z.GDPPC2012, rswm_q, labels=as.character(hunan$County), xlab="z-GDPPC 2012", ylab="Spatially Lag z-GDPPC 2012")
+```
+## Building LISA Map 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+DV <- hunan$GDPPC2012 - mean(hunan$GDPPC2012)     
+C_mI <- localMI[,1] - mean(localMI[,1])    
+signif <- 0.05       
+quadrant[DV >0 & C_mI>0] <- 4      
+quadrant[DV <0 & C_mI<0] <- 1      
+quadrant[DV <0 & C_mI>0] <- 2
+quadrant[DV >0 & C_mI<0] <- 3
+quadrant[localMI[,5]>signif] <- 0
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+DV <- hunan$GDPPC2012 - mean(hunan$GDPPC2012)     
+C_mI <- localMI[,1] - mean(localMI[,1])    
+signif <- 0.05       
+quadrant[DV >0 & C_mI>0] <- 4      
+quadrant[DV <0 & C_mI<0] <- 1      
+quadrant[DV <0 & C_mI>0] <- 2
+quadrant[DV >0 & C_mI<0] <- 3
+quadrant[localMI[,5]>signif] <- 0
+
+hunan.localMI$quadrant <- quadrant
+colors <- c("#ffffff", "#2c7bb6", "#abd9e9", "#fdae61", "#d7191c")
+clusters <- c("insignificant", "low-low", "low-high", "high-low", "high-high")
+
+tm_shape(hunan.localMI) +
+  tm_fill(col = "quadrant", style = "cat", palette = colors[c(sort(unique(quadrant)))+1], labels = clusters[c(sort(unique(quadrant)))+1], popup.vars = c("Postal.Code")) +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha=0.5)
+```
+
+# Analysing cold and hot spots 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+dnb <- dnearneigh(coordinates(hunan), 0, 85, longlat = TRUE)
+dnb
+
+plot(hunan, border = 'lightgrey')
+plot(dnb, coordinates(hunan), add=TRUE, col='red')
+
+dnb_lw <- nb2listw(dnb, style = 'B')
+summary(dnb_lw)
+```
+
+## Creating adaptive proximity matrix
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+coords <- coordinates(hunan)
+knb <- knn2nb(knearneigh(coords, k=8, longlat = TRUE), row.names=row.names(hunan$gdppc))
+knb_lw <- nb2listw(knb, style = 'B')
+summary(knb_lw)
+
+plot(hunan, border="lightgrey")
+plot(knb, coordinates(hunan), pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+## Compute Gi value using fixed distance model 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+fips <- order(hunan$County)
+gi.fixed <- localG(hunan$GDPPC2012, dnb_lw)
+gi.fixed
+hunan.gi <- cbind(hunan, as.matrix(gi.fixed))
+names(hunan.gi)[17] <- "gstat"
+
+tm_shape(hunan.gi) +
+  tm_fill(col = "gstat", 
+          style = "pretty",
+          palette="-RdBu",
+          title = "local Gi") +
+  tm_borders(alpha = 0.5)
+
+```
+
+## Visualising g score with adaptive matrix
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+
+fips <- order(hunan$County)
+gi.adaptive <- localG(hunan$GDPPC2012, knb_lw)
+hunan.gi <- cbind(hunan, as.matrix(gi.adaptive))
+names(hunan.gi)[17] <- "gstat_adaptive"
+
+tm_shape(hunan.gi) +
+  tm_fill(col = "gstat_adaptive",
+          style = "pretty",
+          palette="-RdBu",
+          title = "local Gi") +
+  tm_borders(alpha = 0.5)
+```

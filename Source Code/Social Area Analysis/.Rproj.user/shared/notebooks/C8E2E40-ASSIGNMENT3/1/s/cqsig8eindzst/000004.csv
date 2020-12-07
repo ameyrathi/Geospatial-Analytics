@@ -1,0 +1,4 @@
+"0","mpsz3414 <- mpsz3414%>%rename(""subzone""=SUBZONE_N)"
+"0","mpsz3414_1 <- mpsz3414 %>%"
+"0","  select(subzone,SHAPE_Area, geometry)%>%"
+"0","  mutate(SHAPE_Area=SHAPE_Area/1000000)"

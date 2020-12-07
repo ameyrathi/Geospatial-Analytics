@@ -1,0 +1,84 @@
+---
+title: "assignment2-2"
+author: "Amey Rathi"
+date: "5/17/2020"
+output: flexdashboard::flex_dashboard
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importing Required Packages 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rnaturalearth', 'sp', 'wbstats','DT', 'leaflet', 'sf','spdata')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+
+
+```{r}
+
+
+
+
+museum %>% 
+leaflet() %>%
+addProviderTiles(providers$Esri.WorldImagery, group = "World Imagery") %>%
+addProviderTiles(providers$Stamen.TonerLite, group = "Toner Lite") %>%
+addLayersControl(baseGroups = c("Toner Lite", "World Imagery"))%>%
+  addMarkers(lng = museum$longitude,lat = museum$latitude)
+
+```
+
+```{r}
+library(shiny)
+library(dplyr)
+library(leaflet)
+museum <- read.csv("data/aspatial/listings.csv")
+
+ui <- bootstrapPage(
+  tags$style(type = "text/css", "html, body {width:100%;height:100%}"),
+  leafletOutput("map", width = "100%", height = "100%"),
+  absolutePanel(top = 10, right = 10,
+                sliderInput("price1", "Price", min(museum$price), max(museum$price), value = 20
+                )
+  )
+)
+
+server <- function(input, output, session) {
+
+  sliderData <- reactive({
+    museum[museum$price >= input$price1[1] & museum$price <= input$price1[2],]
+  })
+
+  output$map <- renderLeaflet({
+    leaflet(museum) %>% 
+      addProviderTiles(providers$Stamen.TonerLite, options = providerTileOptions(minZoom = 6, maxZoom = 100)) %>%
+      setView(lng=103.851959, lat=1.290270, zoom=9) %>%
+      addProviderTiles(providers$Esri.WorldImagery, group = "World Imagery") %>%
+addProviderTiles(providers$Stamen.TonerLite, group = "Toner Lite") %>%
+addLayersControl(baseGroups = c("Toner Lite", "World Imagery"))%>%
+  addMarkers(lng = museum$longitude,lat = museum$latitude)
+    }) } 
+
+  # observe({
+  #   leafletProxy("map", data = sliderData()) %>%
+  #   clearMarkers() %>%
+  #     addCircleMarkers(data = fake_data[fake_data$Class1 == TRUE,], group = "Class1", popup = ~as.character(TownName), color = 'black', fillOpacity = 1) %>%
+  #     addCircleMarkers(data = fake_data[fake_data$Class2 == TRUE,], group = "Class2", popup = ~as.character(TownName), color = 'red', fillOpacity = 1) %>%
+  #     addLayersControl(
+  #       overlayGroups = c("Class1", "Class2"),
+  #       options = layersControlOptions(collapsed = FALSE),
+  #       position = "bottomright"
+  #     )
+  # })} 
+
+shinyApp(ui=ui,server=server)
+
+```
+

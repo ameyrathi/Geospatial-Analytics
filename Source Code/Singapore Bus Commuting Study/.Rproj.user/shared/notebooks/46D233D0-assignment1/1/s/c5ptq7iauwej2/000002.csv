@@ -1,0 +1,6 @@
+"0","tapData <- tapData %>%"
+"0","  select(PT_CODE, TOTAL_TAP_IN_VOLUME, TOTAL_TAP_OUT_VOLUME)%>%"
+"0","  group_by(PT_CODE) %>%"
+"0","  summarise(TAP_IN = sum(TOTAL_TAP_IN_VOLUME),"
+"0","            TAP_OUT = sum(TOTAL_TAP_OUT_VOLUME))%>%"
+"0","  rename(""BUS_STOP_N""=PT_CODE)"

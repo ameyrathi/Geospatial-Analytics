@@ -1,0 +1,7 @@
+"0","data <- data %>%"
+"0","  mutate(FOREIGNERS_PERCENTAGE=(IBGE_RES_POP_ESTR/IBGE_RES_POP)*100)"
+"0",""
+"0","data$IBGE_RES_POP_ESTR <- NULL"
+"0","data$IBGE_RES_POP <- NULL"
+"0","data$IBGE_RES_POP_BRAS <- NULL"
+"0",""

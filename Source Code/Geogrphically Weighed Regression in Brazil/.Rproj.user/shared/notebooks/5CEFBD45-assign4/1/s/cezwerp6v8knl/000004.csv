@@ -1,0 +1,3 @@
+"0","data <- st_join(municipality,brazil.sf)"
+"2","although coordinates are longitude/latitude, st_intersects assumes that they are planar
+"

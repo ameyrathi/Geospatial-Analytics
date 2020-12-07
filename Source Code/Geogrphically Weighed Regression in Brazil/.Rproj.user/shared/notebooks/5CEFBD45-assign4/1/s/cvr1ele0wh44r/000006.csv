@@ -1,0 +1,5 @@
+"0","one <- tm_shape(gdp_capita.fixed)+"
+"0","  tm_polygons(""Local_R2"",border.col = ""black"", border.alpha = 0.2)"
+"0","two <- tm_shape(data)+"
+"0","  tm_polygons(""GDP_CAPITA"",border.col = ""black"", border.alpha = 0.2, style=""quantile"")"
+"0","tmap_arrange(one,two,ncol = 2,nrow = 1)"

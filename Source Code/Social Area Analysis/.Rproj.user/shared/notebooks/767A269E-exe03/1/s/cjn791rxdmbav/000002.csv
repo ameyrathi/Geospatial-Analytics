@@ -1,0 +1,12 @@
+"0","popagsex <- read_csv(""data/aspatial/respopagsex2000to2018.csv"")"
+"2","Parsed with column specification:
+cols(
+  PA = [31mcol_character()[39m,
+  SZ = [31mcol_character()[39m,
+  AG = [31mcol_character()[39m,
+  Sex = [31mcol_character()[39m,
+  Pop = [32mcol_double()[39m,
+  Time = [32mcol_double()[39m
+)
+"
+"0","popagsex$SZ <- as.factor(popagsex$SZ) "

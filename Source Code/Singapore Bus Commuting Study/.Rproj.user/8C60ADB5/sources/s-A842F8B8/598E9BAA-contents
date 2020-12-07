@@ -1,0 +1,166 @@
+---
+title: "assignment1"
+author: "Amey Rathi"
+date: "5/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importing required packages
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rgdal', 'spdep',  'tmap', 'tidyverse', 'sf')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+
+# Importing data 
+
+## Importing tap in tap out data (already provided)
+```{r}
+tapData <- read_csv("data/aspatial/passenger volume by busstop.csv")
+singapore <- st_read(dsn = "data/geospatial/master-plan-2014-subzone-boundary-no-sea/master-plan-2014-subzone-boundary-no-sea-shp", layer = "MP14_SUBZONE_NO_SEA_PL")
+population <- read_csv("data/aspatial/resident-population-by-planning-area-subzone-age-group-and-sex-2015/resident-population-by-subzone-age-group-and-sex.csv")
+busStopLocation <- st_read(dsn="data/geospatial/BusStopLocation_Jan2020", layer= "BusStop")
+```
+##Read as OGR 
+```{r}
+singaporeOGR <- readOGR(dsn = "data/geospatial/master-plan-2014-subzone-boundary-no-sea/master-plan-2014-subzone-boundary-no-sea-shp", layer = "MP14_SUBZONE_NO_SEA_PL")
+busStopLocationOGR <- readOGR(dsn="data/geospatial/BusStopLocation_Jan2020", layer= "BusStop")
+
+```
+
+## Data wrangling for population/subzone
+```{r}
+popData <- population %>%
+  filter(level_2 =="Total") %>%
+  filter(level_1 == "Total") %>%
+  select(level_4, value) %>%
+  rename( "SUBZONE_N"=level_4)
+
+popData$SUBZONE_N <- toupper(popData$SUBZONE_N)
+singapore <- left_join(singapore, popData, by="SUBZONE_N")
+```
+## Data wrangling for busstop/tapin-out
+```{r}
+tapData <- tapData %>%
+  select(PT_CODE, TOTAL_TAP_IN_VOLUME, TOTAL_TAP_OUT_VOLUME)%>%
+  group_by(PT_CODE) %>%
+  summarise(TAP_IN = sum(TOTAL_TAP_IN_VOLUME),
+            TAP_OUT = sum(TOTAL_TAP_OUT_VOLUME))%>%
+  rename("BUS_STOP_N"=PT_CODE)
+```
+
+## Join location of bus stop 
+```{r}
+busStopLocation <- st_set_crs(busStopLocation, 3414)
+singapore <- st_set_crs(singapore, 3414)
+
+st_transform(busStopLocation,3414)
+st_transform(singapore, 3414)
+
+busStops <- left_join(tapData,busStopLocation)
+busStops <- busStops %>%
+  select(BUS_STOP_N, TAP_IN, TAP_OUT, geometry)
+```
+## Making subzone table
+```{r}
+subZone <- singapore %>%
+  select(SUBZONE_N, value, geometry,)
+```
+
+## Assigning subzone to bus stop
+```{r}
+singaporeOGR <- spTransform(singaporeOGR, CRS("+init=epsg:3414"))
+busStopLocationOGR <- spTransform(busStopLocationOGR, CRS("+init=epsg:3414"))
+
+x <- singaporeOGR@data$X_ADDR
+y <- singaporeOGR@data$Y_ADDR
+points <- st_coordinates(busStopLocation)
+points[1,2]
+```
+```{r}
+xy <- st_coordinates(singapore) 
+
+x <- xy[,1]
+y <- xy[,2]
+pol <- xy[,5]
+
+
+poly <- data.frame(pol,x,y)
+x <- points[,1]
+y <- points[,2]
+object <- busStopLocation$BUS_STOP_N
+
+points <- data.frame(object,x,y)
+
+
+library(mgcv)
+
+x <- split(poly$x, poly$pol)
+y <- split(poly$y, poly$pol)
+
+todo <- 1:nrow(points)
+Area <- rep.int("", nrow(points))
+pol <- names(x)
+
+# loop through polygons
+for (i in 1:length(x)) {
+  # the vertices of i-th polygon
+  bnd <- cbind(x[[i]], y[[i]])
+  # points to allocate
+  xy <- with(points, cbind(x[todo], y[todo]))
+  inbnd <- in.out(bnd, xy)
+  # allocation
+  Area[todo[inbnd]] <- pol[i]
+  # update 'todo'
+  todo <- todo[!inbnd]
+  }
+
+points$Area <- Area
+```
+
+```{r}
+points2 <- points %>%
+  select(object, Area) 
+
+table <- left_join()
+```
+
+```{r}
+b78221 <- busStopLocation %>%
+  filter(BUS_STOP_N==55231)
+  
+tm_shape(singapore)+
+  tm_polygons()+
+  tm_shape(b78221)+
+  tm_bubbles(size = 0.01, col = "red")
+```
+
+```{r}
+for(i in 1:323){
+  val <- point.in.polygon(points[1,1],points[1,2],x[i,1], y[i,1])
+  print(val)
+  if(val != 0){
+    print(val)
+  }
+}
+
+```
+
+# Some visualisations
+```{r}
+tm_shape(singapore)+
+  tm_polygons("value") 
+```
+
+```{r}
+
+```

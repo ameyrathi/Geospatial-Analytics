@@ -1,0 +1,4 @@
+"0","bw.fixed <- bw.gwr(formula = GDP_CAPITA.log ~ IDHM  +"
+"0","          DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Urbano+ Rural_Adjacente + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + Rural_Remoto+ GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + CAR_RATIO , data = data.sp, approach = ""CV"", kernel=""gaussian"", adaptive=FALSE, longlat=TRUE)"
+"2","Error in eval(predvars, data, env) : object 'GDP_CAPITA.log' not found
+"

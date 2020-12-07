@@ -1,0 +1,903 @@
+---
+title: "Delineating Social Area Analysis using Geographic Segmentation Approach"
+author: "Amey Rathi"
+date: "5/21/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.retina = 3, warning = FALSE, message = FALSE)
+```
+
+# Objective of the report
+
+Social area analysis will be performed in the different subzones of Singapore examine to the socio-economic differences and to classify them into relatively homogenous groups.
+
+# 1. Importing all the required packages
+
+To get started with our analysis, we will get started with importing the required R packages which will help us in the upcoming sections to perform the analysis. Here is a brief description of the packages used: <br>
+* The tidyverse package will be used heavily to perform data wrangling and clean our data sets in order to perform the analysis required. <br>
+* The rgdal, spdep, and sf package will be used for spatial data manupulation and analysis. They are used for performing various different functions on spatial data. <br>
+* The corrplot and tmap packages will be used for visualisation purposes. <br>
+* ClustGeo, heatmaply, and psych will be used to perform statistical analysis on spatial data. <br>
+```{r}
+packages = c('rgdal', 'spdep', 'ClustGeo',  'tmap', 'sf', 'ggpubr', 'cluster', 'heatmaply', 'corrplot', 'psych', 'tidyverse',"factoextra","NbClust","FactoMineR","knitr", "tmaptools")
+for (p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+    }
+  library(p,character.only = T)
+}
+```
+
+# 2. Importing all datasets 
+
+Through the code in this section, we will be importing all the required datasets. These involve both spatial and aspatial data.
+
+## 2.1 Importing aspatial data 
+
+The data below is taken from is from www.data.gov.sg, which is an official government website for Singapore's public data. The URL for the dataset is as follows: <br>
+https://data.gov.sg/dataset/singapore-residents-by-subzone-and-type-of-dwelling-2011-2019
+```{r}
+residentData <- read_csv("data/aspatial/singapore-residents-by-subzone-and-type-of-dwelling-2011-2019/planning-area-subzone-age-group-sex-and-type-of-dwelling-june-2011-2019.csv")
+```
+
+## 2.2 Importing geospatial data
+
+There are multiple datasets which are imported in this section. The function st_read will be used while importing it to ensure that the geospatial data is imported in sfc format. 
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial/master-plan-2014-subzone-boundary-no-sea-shp", layer="MP14_SUBZONE_NO_SEA_PL")
+```
+The above code imports the subzone boundary of Singapore. As seen in the output, there is no CRS assigned currently and the data is represented in meters. Hence, we will assign the EPSG code of 3414 and transform the data into EPSG 3414 format, which is the most accurate projection system for spatial data in Singapore.  
+
+```{r}
+mpsz <- st_set_crs(mpsz,3414)
+mpsz3414 <- st_transform(mpsz,3414)
+```
+
+Next, we will import geospatial data for all the important urban functions in Singapore. 
+
+```{r}
+business <- st_read(dsn="data/geospatial", layer="Business")
+financial <- st_read(dsn="data/geospatial", layer="Financial")
+govt <- st_read(dsn="data/geospatial", layer="Govt_Embassy")
+private <- st_read(dsn="data/geospatial", layer="Private residential")
+shopping <- st_read(dsn="data/geospatial", layer="Shopping")
+```
+Spatial properties of various urban functions are imported above. As seen in the output, all of them have CRS 4326, and expressed in meters. Singapore uses an EPSG code of 3414. Hence, to ensure that the data is projected accurately, we will be transforming the data into EPSG 3414. 
+
+### Transforming all geospatial data into EPSG 3414
+```{r}
+business3414 <- st_transform(business,3414)
+financial3414 <- st_transform(financial,3414)
+govt3414 <- st_transform(govt,3414)
+private3414 <- st_transform(private,3414)
+shopping3414 <- st_transform(shopping,3414)
+
+```
+
+### Checking the data
+```{r}
+business3414
+financial3414
+govt3414
+private3414
+shopping3414
+```
+The above output shows that all the sfc tables containing key urban feautures have been converted to EPSG 3414 format, which is the Singapore standard. this will allow our data to be projected accurately.
+
+The dataset for business can be further seperated into business and industry. Industry will include all manufacturing and other primary and secondary businesses whereas Business will include all the tertiary businesses.  
+
+```{r}
+industry3414 <- business3414 %>%
+  filter(FAC_TYPE==9991)
+business3414 <- business3414 %>%
+  filter(FAC_TYPE==5000)
+
+summary(industry3414)
+```
+
+# 3. Data Inspection
+
+## 3.1 Examining population demographics 
+
+The resident data is inspected below using the summary function which allows us to see the data class for each column and its distribution.
+
+```{r}
+summary(residentData)
+```
+
+As seen above, all columns except for resident_count and year have the class character. As the median for resident count is 0 and the third quartile is below the mean, it is very evident that more than 50% of the subzones have a residential population of 0. This is because many subzones are inhabitable (ex: Central Catchement Area, Western Catachement Area, etc.) and various subzones such as Changi Bay contain key transportation facilities of Singapore, hence do not have any population. Secondly, the data in this table is from year 2011 to 2019. As we will beperforming analysis on the latest (2019) data, we will remove data for all the other years (2011-2018).
+
+## 3.2 Examining urban functions 
+
+### 3.2.1 Businesses
+
+```{r}
+summary(business3414)
+```
+From the above summary, we can notice that there are 266 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct businesses. As each business is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+business3414_cleaned <- business3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(business3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the business based on its location. However, before that, we will create a new variable which only consists of the subzone name and location which will make it easier to perform relational joins and assigning subzones. 
+```{r}
+mpsz3414_2 <- mpsz3414 %>%
+  rename("subzone"=SUBZONE_N)%>%
+  select(subzone,geometry)
+
+business_by_subzone <- st_intersection(mpsz3414_2,business3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Businesses=n())
+
+summary(business_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(business_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.2 Industries 
+```{r}
+summary(industry3414)
+```
+Similarly to the methodology used above, we will group by poi_id so that we remove duplicated values. This is because each industry has a unique POI_ID.
+```{r}
+industry3414_cleaned <- industry3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(industry3414_cleaned)
+```
+We will now assign a subzone to each of the industry through st_intersection method.
+
+```{r}
+industry_by_subzone <- st_intersection(mpsz3414_2,industry3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Industries=n())
+
+summary(industry_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(industry_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+ 
+
+### 3.2.3 Shopping infrastructure 
+
+```{r}
+summary(shopping3414)
+```
+From the above summary, we can notice that there are 102 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct shopping infrastructure in order to avoid repetitions. As each shooping infrastructure is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+shopping3414_cleaned <- shopping3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(shopping3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the shopping infrastructure based on its location. 
+
+```{r}
+shopping_by_subzone <- st_intersection(mpsz3414_2,shopping3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Shopping_Infrastructures=n())
+
+summary(shopping_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(shopping_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.4 Government Institutions
+
+```{r}
+summary(govt3414)
+```
+From the above summary, we can notice that there are 28 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct government institutions in order to avoid repetitions. As each governemnt institution is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+govt3414_cleaned <- govt3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(govt3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the government institution based on its location. 
+
+```{r}
+govt_by_subzone <- st_intersection(mpsz3414_2,govt3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Govt_institutions=n())
+
+summary(govt_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(govt_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.5 Financial institutions  
+```{r}
+summary(financial3414)
+```
+There are various variables in this dataset which contain NA values. However, as our end goal is to find the number of financial institutions present in a subzone, we will count distinct locations by grouping the table by POI_ID as each distinct location of a financial institution has a distinct POI_ID. 
+
+```{r}
+financial3414_cleaned <- financial3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE) 
+
+summary(financial3414_cleaned)
+```
+We will now assign a subzone to each of the financial institution through st_intersection method.
+
+```{r}
+financial_by_subzone <- st_intersection(mpsz3414_2,financial3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Financials=n())
+
+summary(financial_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(financial_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.6 Upmarket residential area 
+```{r}
+summary(private3414)
+```
+There are various variables in this dataset which contain NA values. However, as our end goal is to find the number of upmarket residential loctations present in a subzone, we will count distinct locations by grouping the table by POI_ID as each distinct location of a private property has a distinct POI_ID. 
+
+```{r}
+private3414_cleaned <- private3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE) 
+
+summary(private3414_cleaned)
+```
+We will now assign a subzone to each of the private property location through st_intersection method.
+
+```{r}
+private_by_subzone <- st_intersection(mpsz3414_2,private3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Private_properties=n()) 
+
+summary(private_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+
+Check for duplicate as well.
+```{r}
+is_empty(private_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+
+
+## 3.3 Identifying missing values 
+```{r}
+sum(complete.cases(residentData))
+sum(!complete.cases(residentData))
+```
+As seen above, none of the 883728 observations have NA value. 
+
+# 4. Transforming data
+
+### Joining data to make demographics into sf format
+```{r}
+mpsz3414 <- mpsz3414%>%rename("subzone"=SUBZONE_N)
+mpsz3414_1 <- mpsz3414 %>%
+  select(subzone,SHAPE_Area, geometry)%>%
+  mutate(SHAPE_Area=SHAPE_Area/1000000)
+```
+
+## 4.1 Data Wrangling for demographics 
+```{r}
+one <- residentData %>%
+  spread(age_group, resident_count) %>%
+  mutate(YOUNG=rowSums(.[6:9])+rowSums(.[15])) %>%
+  mutate(ACTIVE=rowSums(.[10:14])+rowSums(.[16:18])) %>%
+  mutate(AGED=rowSums(.[19:24])) %>%
+  select(subzone,type_of_dwelling,YOUNG,ACTIVE,AGED) %>%
+  group_by(subzone) %>%
+  summarise(YOUNG = sum(YOUNG), AGED= sum(AGED), ACTIVE = sum(ACTIVE))%>%
+  mutate(TOTAL=YOUNG+AGED+ACTIVE)
+
+one$subzone <- toupper(one$subzone)
+one <- left_join(one,mpsz3414_1)
+one <- one %>%
+  mutate(DENSITY=TOTAL/SHAPE_Area)
+
+
+two <- residentData %>%
+  spread(type_of_dwelling,resident_count)
+
+names(two)<-str_replace_all(names(two), c(" " = "_" , "-" = "" ))
+colnames(two)[11] <- "HUDC_Flats"
+```
+## 4.2 Data Wrangling for urban functions 
+
+```{r}
+three <- two %>%
+  group_by(subzone) %>%
+  summarise(Condominiums_and_Other_Apartments=sum(Condominiums_and_Other_Apartments),
+            HDB_1_and_2Room_Flats=sum(HDB_1_and_2Room_Flats),
+            HDB_3Room_Flats=sum(HDB_3Room_Flats),
+            HDB_4Room_Flats=sum(HDB_4Room_Flats),
+            HDB_5Room_and_Executive_Flats= sum(HDB_5Room_and_Executive_Flats),
+            HUDC_Flats = sum(HUDC_Flats),
+            Landed_Properties = sum(Landed_Properties),
+            Others = sum(Others)) %>%
+  mutate(HDB_3_and_4Room_Flats=HDB_3Room_Flats+HDB_4Room_Flats) %>%
+  select(subzone,HDB_1_and_2Room_Flats,HDB_3_and_4Room_Flats,HDB_5Room_and_Executive_Flats,Condominiums_and_Other_Apartments,Landed_Properties)
+
+three$subzone <- toupper(one$subzone)
+```
+
+## 4.3 Combining all the data into one table
+
+First, we will create a base table which has the subzone name and geometry
+```{r}
+data_by_subzones <- mpsz3414 %>%
+  select(OBJECTID, subzone,geometry)
+```
+
+We will now convert all the sf tables into data.frame objects by removing its special properties. This will allow us to make relational joins. 
+
+```{r}
+st_geometry(private_by_subzone) <- NULL
+st_geometry(shopping_by_subzone) <- NULL
+st_geometry(business_by_subzone) <- NULL
+st_geometry(industry_by_subzone) <- NULL
+st_geometry(govt_by_subzone) <- NULL
+st_geometry(financial_by_subzone) <- NULL
+one$geometry <- NULL
+```
+
+Now we will join all the urban properties to this table
+```{r}
+data_by_subzones <- left_join(data_by_subzones,private_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,shopping_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,business_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,industry_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,govt_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,financial_by_subzone)
+```
+
+Before joining the demographic data, we will examine the data using the summary functions.
+```{r}
+summary(data_by_subzones)
+```
+As seen in the above output, almost all the properties have NA values. This is because many subzones dont contain various urban functions at all. To make the data more accurate, we will replace the NA values by 0. Note that we had already performed an NA check on while performing cleaning on the individual dataset for each urban function, hence the NA values have only arised while performing a relational join. 
+```{r}
+data_by_subzones[is.na(data_by_subzones)]=0
+```
+
+
+Joining demographic data
+```{r}
+data_by_subzones <- left_join(data_by_subzones,one)
+data_by_subzones <- left_join(data_by_subzones,three)
+```
+Examining the data 
+```{r}
+summary(data_by_subzones)
+```
+As we do not require the area if subzone, we will be removing it
+```{r}
+data_by_subzones$SHAPE_Area = NULL
+data_by_subzones$OBJECTID = NULL
+data_by_subzones$TOTAL = NULL
+rownames(data_by_subzones) <- data_by_subzones$subzone
+data_by_subzones$subzone <- NULL
+```
+From the above summary, we have 15 variables attached to every subzone for analysis. However, before we perform hierarchical cluster analysis, we will perform univariant analysis in order to understand the scale and spread of data for each of the 15 variables. 
+
+However, before we start analysis of each variable, we will first examine the subzones.
+
+```{r}
+tm_shape(data_by_subzones)+
+  tm_polygons()+
+  tm_borders()
+```
+
+As seen above, all the subzones of Singapore are included. To continue with socioeconomic analysis, we will analyse few subzones specifically in order to visualise if any feauture are present in them. These subzones include water catchement areas, which predominantly consists of water bodies and forests. We will also be analysing islands which are disconnected from mainland Singapore.
+
+### Analysing these areas 
+
+
+```{r}
+
+data_by_subzones = data_by_subzones[ !(row.names(data_by_subzones) %in% c("SUDONG","SEMAKAU", "SOUTHERN GROUP","NORTH-EASTERN ISLANDS","PULAU SELETAR")), ]
+
+```
+# 5. Performing Univariant Analysis 
+
+## 5.1 Understanding data through histograms
+
+The code chunk below makes a function to make histograms and box plots so that we dont have to keep repeating the code.
+```{r}
+plot_data <- function(maindata,attribute){
+  return(ggplot(data=maindata, 
+             aes_string(x= attribute)) +
+  geom_histogram(bins=20, 
+                 color="black", 
+                 fill="light blue"))
+}
+private_plot <- plot_data(data_by_subzones,"Financials")
+
+box_plot <- function(maindata,attribute){
+  return(ggplot(data=maindata, aes_string(x=attribute)) +
+  geom_boxplot(color="black", fill="light blue"))
+}
+```
+
+All the plots are now stored in a variable from the code below
+
+```{r}
+private_plot <- plot_data(data_by_subzones,"Financials")
+shopping_plot <- plot_data(data_by_subzones,"Shopping_Infrastructures")
+business_plot <- plot_data(data_by_subzones,"Businesses")
+industry_plot <- plot_data(data_by_subzones,"Industries")
+govt_plot <- plot_data(data_by_subzones,"Govt_institutions")
+financial_plot <- plot_data(data_by_subzones,"Financials")
+young_plot <- plot_data(data_by_subzones,"YOUNG")
+aged_plot <- plot_data(data_by_subzones,"AGED")
+active_plot <- plot_data(data_by_subzones,"ACTIVE")
+density_plot <- plot_data(data_by_subzones,"DENSITY")
+HDB1_2_plot <- plot_data(data_by_subzones,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- plot_data(data_by_subzones,"HDB_3_and_4Room_Flats")
+HDB5_plot <- plot_data(data_by_subzones,"HDB_5Room_and_Executive_Flats")
+condo_plot <- plot_data(data_by_subzones,"Condominiums_and_Other_Apartments")
+landed_plot <- plot_data(data_by_subzones,"Landed_Properties")
+```
+
+To visualise the graphs, we arrange it and plot it.
+
+```{r fig.retina=3}
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+```
+
+As seen above, all the data is left skewed and has widely varying scales. Before making a decision on whether or not we need to standardise the data, we will plot the data using box-whisker plot in order to identify the outliers.
+
+## 5.2 Understanding data through box plots
+```{r}
+private_plot <- box_plot(data_by_subzones,"Financials")
+shopping_plot <- box_plot(data_by_subzones,"Shopping_Infrastructures")
+business_plot <- box_plot(data_by_subzones,"Businesses")
+industry_plot <- box_plot(data_by_subzones,"Industries")
+govt_plot <- box_plot(data_by_subzones,"Govt_institutions")
+financial_plot <- box_plot(data_by_subzones,"Financials")
+young_plot <- box_plot(data_by_subzones,"YOUNG")
+aged_plot <- box_plot(data_by_subzones,"AGED")
+active_plot <- box_plot(data_by_subzones,"ACTIVE")
+density_plot <- box_plot(data_by_subzones,"DENSITY")
+HDB1_2_plot <- box_plot(data_by_subzones,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- box_plot(data_by_subzones,"HDB_3_and_4Room_Flats")
+HDB5_plot <- box_plot(data_by_subzones,"HDB_5Room_and_Executive_Flats")
+condo_plot <- box_plot(data_by_subzones,"Condominiums_and_Other_Apartments")
+landed_plot <- box_plot(data_by_subzones,"Landed_Properties")
+
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+```
+
+Most of the data is left skewed and contains multiple outliers. To perform accurate hierarchical cluster analysis, we will be normalising the data using min-max function. This function is preferred over using z-scores as none of the graphs resemble normality as seen in the histograms.
+
+# 6. Multivariate Analysis
+
+## 6.1 Standardisation of data
+
+Standardising data requires our current data to be transformed from sfc to a data.frame object. The code below preserves the spatial property by creating a new variable data_by_subzones_sf.
+
+```{r}
+data_by_subzones_sf <- data_by_subzones
+st_geometry(data_by_subzones) <- NULL
+```
+
+The code below standardises the data using the min-max method, which scales the data from 0 to 1. 
+```{r}
+data_by_subzones.std <- normalize(data_by_subzones)
+summary(data_by_subzones.std)
+```
+
+As seen in the above summary, all the data is scalled as all have  a minimum value of 0 and a maximum value of 1. 
+
+## 6.2 Correlation plot
+
+In order to perform hierarchical cluster analysis, we need to ensure that our variables are not highly correlated. This is because we would prefer to have a mixture of high, low, and moderate values in different variables so that our clusters are well diffrentiated, hence variables with high correlation can hinder the cluster analysis. To examine the corelation, we will plot a corelation plot which indicates the corelation coefficient. 
+
+```{r}
+cluster_vars.cor = cor(data_by_subzones.std[,1:15])
+corrplot.mixed(cluster_vars.cor,
+         lower = "ellipse", 
+               upper = "number",
+               tl.pos = "lt",
+               diag = "l",
+               tl.col = "black",
+         tl.cex=0.5,
+         number.cex=0.8)
+```
+
+The above matrix has the correlation coefficient for all the pairs of variables. We are now interested in capturing pairs which have the high correlation coefficient. If a pair of variables are highly correlaeted, we will eliminate one of the variables in the pair for our cluster analysis. Furthermore, the varaible to be retained in the analysis will be chosen on its practical usefulness or actionability potential. We will adaopt the threshold of 0.80 to classify a pair of varaiables as highly correlated. We wil broadly classify our variables into two sub categories and then perform varaible elimination. The categories are:
+
+(1) Urban functions: Private properties, Shopping Infrastructure, Businesses, Industries, Government Institutions, Financials. <br>
+(2) Population demographic: Young, Active, Aged, Density, HDB_1_and_2Room_Flats, HDB_3_and_4Room_Flats, HDB_5Room_and_Executive_Flats, Condominiums_and_Other_Apartments, Landed_Properties <br>
+
+In the first category (Urban functions), none of the pair of variables are highly correlated, i.e. none of the combination of pair of variables have correlation coefficient more than 0.80. 
+
+In the second category, there are various variables which have correlation coefficient higher than 0.80. They are as follows:
+```{r echo=FALSE, results='asis'}
+table <- data.frame("Var1"= c("YOUNG","YOUNG","YOUNG","YOUNG","AGED","AGED","ACTIVE","ACTIVE"),
+                    "Var2"=c("AGED","ACTIVE","HDB 3_4 ROOM","HDB_5_EXEC","ACTIVE","HDB 3_4 ROOM","HDB 3_4 ROOM","HDB_5_EXEC"),
+                    "Correlation"=c(0.85,0.99,0.91,0.92,0.91,0.90,0.95,0.88))
+kable(table)
+```
+
+From the above reslts, we are going to eliminate the variables AGED and ACTIVE. This is because both of these variables have high correlation with Young and HDB 3,4 room. To further understand the relationship of the data, we will be performing principal component analysis (PCA). This technique helps in reducing the dimensionality  increasing interpretability but at the same time minimizing information loss. It does so by creating new uncorrelated variables that successively maximize variance.
+
+## 6.3 Performing PCA
+```{r}
+res.pca <- PCA(data_by_subzones.std[,1:12],  graph = FALSE)
+fviz_screeplot(res.pca, addlabels = TRUE, ylim = c(0, 80))
+summary(res.pca)
+```
+
+From the results, we can derive that 80% of the variability in the variables can be found in the first five principal components. The first principal component is the direction in space which consists the maximum variance, after which, the variability keeps decreasing in each principal component. To understand the varaibles which contribute to each principal component, we will be plotting graphs which indicate the contribution of different variables in each component. 
+
+```{r}
+# Extract the results for variables
+var <- get_pca_var(res.pca)
+# Contributions of variables to PC1
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
+# Contributions of variables to PC2
+fviz_contrib(res.pca, choice = "var", axes = 2, top = 10)
+# Control variable colors using their contributions to the principle axis
+fviz_contrib(res.pca, choice = "var", axes = 3, top = 10)
+fviz_contrib(res.pca, choice = "var", axes = 4, top = 10)
+fviz_contrib(res.pca, choice = "var", axes = 5, top = 10)
+
+
+fviz_pca_var(res.pca, col.var="contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping
+             ) + theme_minimal() + ggtitle("Variables - PCA")
+```
+
+### Interpretation
+
+The first principal component is strongly correlated with five of the original variables. The first principal component increases with increasing Active, Aged, YOUNG, Density, and HDB3_4 rooms scores. This suggests that these five criteria vary together. If one increases, then the remaining ones tend to increase as well. Hence, with relation to our correlation analysis, we will elimnate Active, Aged, and HDB_3_4Room as the data is already been captured in the other variables, i.e. Young and Density. 
+
+Principal components 2-5 only contain 1-2 variables which significantly contribute in variation, however, they are not significantly correlated as found in our correlation analysis. Hence, we will be retaining all those variables. 
+
+## Choosing cluster vars
+```{r}
+cluster_vars.std <- data_by_subzones.std %>%
+  select("Private_properties", "Shopping_Infrastructures","Businesses","Industries" ,"Govt_institutions", "Financials", "ACTIVE","HDB_1_and_2Room_Flats", "HDB_5Room_and_Executive_Flats", "DENSITY", "Condominiums_and_Other_Apartments" , "Landed_Properties")                     
+```
+
+In order to perform clustering, we first need to define a proximity matrix. The proximity matrix is a matrix which consists a measure of similarity from one variable to all the other variables. The measure of similarity will be calculated by Euclidean distance, which is a straight line distance between two points. 
+### Calculating the proximity matrix
+```{r}
+proxmat <- dist(cluster_vars.std, method = 'euclidean')
+```
+
+
+## 6.4 Computing Hierarchical clustering
+
+Hierarchical clustering algorithm will seperate the subzones into different clusters based on their measure of similarity. Clustering will allow us to subgroup subzones based on their socioeconomic characteristics. The analysis seeks to identify a set of groups which both minimize within-group variation and maximize between-group variation. This will ensure that we get very distinct clusters. We will be using agglomerative hierarchical clustering, which is a bottom-up approach, i.e. all subzones are iteratively merged until it belongs to one big cluster. There are various methods to merge these clusters. They are: <br>
+(1) Using average distance between two clusters <br>
+(2) Calculating the maximum distance between the points of the two clusters, i.e. using the distance between the two furthest points <br>
+(3) Calculating the minimum distance between the points of the two clusters, i.e. using the distance between the two closest points <br>
+(4) Using Ward's method which merges two clusters in order to reduce within cluster variance <br>
+
+### Choosing the most optimal method
+In order to decide the most optimal algorithm for our case study, we will be calculating the agglomerative coefficient, which measures the amount of clustering structure found. The method with the highest index value will be chosen. 
+
+```{r}
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+ac <- function(x) {
+  agnes(cluster_vars.std, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+
+From the above output, it is evident that Ward's method has the highest agglomerative index value of 0.976. Ward’s method is also preferred for this analysis because the pooled with-in group sum of squares is minimized.
+
+### Plotting hierarchical clustering dendogram
+```{r}
+hclust_ward <- hclust(proxmat, method = 'ward.D')
+plot(hclust_ward, cex = 0.5)
+```
+
+As we have 318 subzones, the names of the subzones are not visible. However, that is not important right now as we can visualise that using a projected map later. The most important interpretation from the dendogram is to notice the height at which clusters are being merged. If we look at the 2nd merge from the top, it is evident that there is a significant difference between the first two merges. However, there is not much difference in height between the third and fourth merge. This may indicate that the difference between our clusters might not be significant. We will examine this by diving the dendogram into difference clusters and analysing the clusters using mean and standard deviation. 
+
+This raises an important question of determining the number of clusters we need to split into.
+
+### Determining the number of clusters 
+
+There are various indices which give an estimate of number of clusters we need to split the data. However, each index determines the number of clusters on factors such as standard deviation, mean, co-varaiance, etc, giving a different weight to each of these components. In order to get a aggregated result, we will use NbClust() function from NbClust library, whichprovides 30 indices for determining the number of clusters and proposes to user the best clustering scheme from the different results obtained by varying all combinations of number of clusters, distance measures, and clustering methods.
+
+```{r}
+NbClust(data = cluster_vars.std, diss = NULL, distance = "euclidean", min.nc = 2, max.nc = 15, method = "ward.D", index = "all", alphaBeale = 0.05)
+```
+
+As seen above, most indices proposed 4 as the most optimal number of clusters. Hence, we are going to go ahead and divide the dendogram into four clusters. 
+
+```{r}
+hclust_ward <- hclust(proxmat, method = 'ward.D')
+plot(hclust_ward, cex = 0.5)
+rect.hclust(hclust_ward, k = 4, border = "red")
+hclust_ward
+```
+
+As seen in the above output, the dendogram is divided into four clusters, as seen by the coloured boxes. As there are many subzones, we are not able to visualise the subzone names properly, hence we will perform analysis by visualising the clusters on the map. Before we conduct the final analysis, we will also plot the heatmap in order to detect how clusters are formed in different variables. 
+
+## 6.5 Heatmap 
+
+The heatmap is a great tool to understand how various clusters are formed by analysing each variable individually. As the number of subzones are too many, the heatmap is not too clear. The heatmap is interactive, so exact values can be extracted and it can be zoomed in as well if needed. 
+
+```{r}
+heatmap <- data.matrix(cluster_vars.std)
+
+heatmaply(heatmap,
+          Colv=NA,
+          dist_method = "euclidean",
+          hclust_method = "ward.D",
+          seriate = "OLO",
+          colors = Blues,
+          k_row = 4,
+          margins = c(NA,200,60,NA),
+          fontsize_row = 3,
+          fontsize_col = 5,
+          main="Geographic Segmentation of Shan State by ICT indicators",
+          xlab = "Demographic and Urban Indicators",
+          ylab = "Subzones of Singapore"
+          )
+```
+
+We will analyse each cluster from the heatmap, after we plot the map representing the clusters. This will allow analysis to be more coherent.
+
+## 6.6 Map for visualising clusters
+```{r}
+tmap_mode("plot")
+groups <- as.factor(cutree(hclust_ward, k=4))
+data_by_subzones_sf$CLUSTER <- groups
+tm_shape(data_by_subzones_sf)+
+  tm_polygons("CLUSTER",
+              palette="Set3")
+```
+
+The four clusters are very evident in the map above. In order to analyse the clusters, we will be plotting the mean value of the socio-economic factors of every cluster to compare them. This will be used in tandom with the heatmap plotted in section 6.5. 
+
+## 6.7 Cluster Analysis
+
+A histogram will be plotted for each variable in order to perfor cluster analysis and find out the simalrities and differences in each cluster.
+
+```{r}
+data_by_subzones.std$CLUSTER <- groups
+aggregate <- aggregate(data_by_subzones.std,by= list(data_by_subzones.std$CLUSTER),FUN = "mean")
+aggregate$CLUSTER <- NULL
+aggregate <- aggregate %>%
+  rename("CLUSTER"=Group.1)
+
+plot_data <- function(maindata,attribute){
+  return(ggplot(aggregate, aes_string(x="CLUSTER",y=attribute, fill = "CLUSTER")) + 
+   geom_bar(stat="identity", position = "dodge",size=0.5) + 
+    theme(legend.position = 'none')+
+   scale_fill_brewer(palette = "Set3"))}
+  
+private_plot <- plot_data(aggregate,"Private_properties")
+shopping_plot <- plot_data(aggregate,"Shopping_Infrastructures")
+business_plot <- plot_data(aggregate,"Businesses")
+industry_plot <- plot_data(aggregate,"Industries")
+govt_plot <- plot_data(aggregate,"Govt_institutions")
+financial_plot <- plot_data(aggregate,"Financials")
+young_plot <- plot_data(aggregate,"YOUNG")
+aged_plot <- plot_data(aggregate,"AGED")
+active_plot <- plot_data(aggregate,"ACTIVE")
+density_plot <- plot_data(aggregate,"DENSITY")
+HDB1_2_plot <- plot_data(aggregate,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- plot_data(aggregate,"HDB_3_and_4Room_Flats")
+HDB5_plot <- plot_data(aggregate,"HDB_5Room_and_Executive_Flats")
+condo_plot <- plot_data(aggregate,"Condominiums_and_Other_Apartments")
+landed_plot <- plot_data(aggregate,"Landed_Properties")
+```
+
+To visualise the graphs, we arrange it and plot it.
+
+```{r fig.retina=3}
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+
+```
+
+### Interpretation of Cluster One 
+
+Cluster One (shown in green) is the largest cluster amongst the four. The most unique factor of this cluster is that it does not dominate in any of the urban functions or the social demographics. If we observe the map, this region is located in all the four regions of Singapore. One of the many reason this cluster is low on socioeconomic factors is because it consists of various regions such as Central Catchement Area, Western Catachement Area, and the Changi Bay which consists of Changi Airport. The water catchement area mainly comprises of forests and water bodies, hence are very low on the urban functions. As the density of this region is very low, along with the age demographic, this cluster indicates that the economic properties in a region go hand in hand with the demographic properties. These regions have room for development to attract people to either live or work. These are more "open regions" of Singapore, i.e. they contain lesser buildings and commercial infrastructure and have more open land, forests, and parks. They play an important role in making Singapore a green city and maintain enviornmental properties. Notably, this cluster extends in the central region as well in subzones such as Tanglin and Tanjong Rhu. These are regions which have low population density, however, are known as the posh areas of Singapore as they are very open and have very few buildings. There are many other subzones in this cluster which have a very low popuation, due to lesser and shorter buildings. As we can see from the financials histogram, there are a lot of financial infrastructure present in this area. This brings about one more inference, i.e. these regions can developed as one of the more posh areas of Singapore if they already don't have any residential infrastructure. 
+
+### Interpretation of Cluster Two  
+
+Cluster Two (shown in yellow) dominates two urban functions: Businesses and Industries. Industries refer to indiustrial parks, manufacturing facilities, etc whereas businesses in the "tertiary sector". One of the most beautiful understanding from this cluster is that even though they are located in all the four regions of Singapore, they are found in groups of "mini-clusters" as most of them have adjoining subzones which are part of this cluster. Industries require a lot of raw materials and transportation resources, hence, it is more essential for the industries to form in clusters together. Singapore is one of the very first countries to adopt the concept of "Industrial Parks" which are large areas that contain manufacturing and industrial facilities. As these regions are not suitable for any other social activities, it is evident that these regions should be developed in a way which suits the requirements of businesses and industries such as having truck trailer parkings, etc. It is very evident that population density and number of households are extremely low in these areas. Industries usually have various harmful and toxic chemicals as its pollutants which creates an unhealthy living enviornment, leading to low levels of residential areas in these regions, having the least amount of residential infrastructure for each of the different types of dwelling as compared to other clusters.
+
+### Interpretation of Cluster Three  
+
+Cluster Three (in purple) dominates all the demographic factors. It consists the highest proportion of population by density and all three age groups. These are the densly populated residential areas of Singapore. They can be found in the western and eastern region of Singapore. Even though these areas are built for residential purposes, it can be found that Condominiums, Landed Properties, and Private Properties are not found as much in this cluster (as compared to Cluster 4). We can therefore infer that the distribution of HDBs and Condominiums/Landed property follow an inverse spatial relationship. It is very evident that financial infrastructure is heavily required in such regions. This is because banking facilities are used by everyone in the population, and hence should be heavily concentrated in residential areas. The second most required amenity are shopping facilities, which goes without saying, is an essential requirement if the region is densly populated. The data also suggests that Singapore has taken a very bi-modal approach by spatially seggregating businesses and residential areas. As there are limited businesses and industries in these regions, it implies that most of the population travels to work from these regions and hence public transport facilities should be readily available. 
+
+### Interpretation of Cluster Four 
+
+Cluster Four (in red) dominates in most of the urban functions, having the most private properties, shopping infrastructure, government institutions, financial infrastructure. It is also notable that this region also consists of the highest proportion of Landed properties and Condominiums. These subzones mark where most of the public service facilities are present and also where the most richest segment of the population prefers to live as they predominantly consits of landed properties and condominiums. It can be infered that these regions are the most developed regions of Singapore. 
+
+
+# 7. Spatially Constrained Clustering - SKATER
+
+## 7.1 Data preperation
+
+The subzones clustered in the above methodology were not spatially related. In this section, we will perform clutering by a SKATER approach.
+
+Firstly, we will convert our sf dataframe to sp format. This is because the SKATER clustering function requires a spatial dataframe object as its input. 
+
+```{r}
+data_by_subzones_sf$CLUSTER = NULL
+data_by_subzones_sp <- as_Spatial(data_by_subzones_sf)
+```
+
+### Computing Neighbour List
+
+From the sp object, we will now be creating a neighbour list. All the subzones which are adjoining a subzone are considred to be its neighbours.
+```{r}
+data.nb <- poly2nb(data_by_subzones_sp)
+summary(data.nb)
+```
+
+The neighbours can be plotted with the code below. Note that each vertex represents the centroid of the subzone.
+
+```{r}
+plot(data_by_subzones_sp, border=grey(.5))
+plot(data.nb, coordinates(data_by_subzones_sp), col="blue", add=TRUE)
+```
+
+The neighbours list is a graph which has each subzone as a vertex, and every edge indicates a connection between two subzones. We will now calculate the cost of each edge through nbcosts() function. 
+
+```{r}
+data_by_subzones.std$CLUSTER = NULL
+lcosts <- nbcosts(data.nb, data_by_subzones.std)
+```
+
+We can now examine how lcosts looks like.
+```{r}
+head(lcosts)
+```
+ As we have a prepared dataset with a list of values representing demographics and urban functions for each subzones, we will convert the graph to a weighed graph where each edge represents the measure of similarity between two subzones by accounting for all the variables.
+
+```{r}
+data.w <- nb2listw(data.nb, lcosts, style="B")
+glimpse(data.w)
+```
+From the above summary, we can notice that the average number of links is 6. This implies that each subzone is connected to six other subzones on average. Jurong island is an island with only one link. We did not remove this subzone from our dataframe as it is a major hub for manufacturing as well as oil&gas production facilities. 
+
+In order to perform SKATER cluster analysis, we will find the minimum spanning tree for our weighed graph. The minimum spanning tree connects all the vertices together, without any cycles and with the minimum possible total edge weight. This is calculated through the mstree() function.
+
+```{r}
+data.mst <- mstree(data.w)
+```
+
+We can examine the nature of the output
+```{r}
+class(data.mst)
+dim(data.mst)
+```
+The number of dimensions are 317 as a spanning tree consists of (N-1) edges in order to traverse through all the nodes.
+
+We can visualise the spanning tree by plotting it.
+
+```{r}
+plot(data_by_subzones_sp, border=gray(.5))
+plot.mst(data.mst, coordinates(data_by_subzones_sp), 
+     col="blue", cex.lab=0.7, cex.circles=0.005, add=TRUE,label.areas = NULL)
+```
+
+Note that the number of edges have reduced! This is because this graph is now a acyclic graph. 
+
+##7.2 Computing the clusters
+
+The code below computes clusers using SKATER method. In hieracrchical clustering, we found that 4 was the optimum number of clusters. However, as the SKATER method employs spatial contraints, we will split the data into 6 clusters in order to avoid extremely big clusters. 
+
+```{r}
+clust <- skater(data.mst[,1:2], data_by_subzones.std, 5)
+```
+
+The output of the above code is a skater object. We can examine it from the code below.
+```{r}
+str(clust)
+```
+The data has been split up into 4 parts, indicating 4 clusters. Each part consists of the nodes and edge costs. We can find out how the clusters have been assigned from the code below.
+```{r}
+clusters <- clust$groups
+clusters
+```
+This is a vector which contains the cluster number for each subzone. Similar to the previous section, we will assign it to each table and map it.
+
+## 7.3 Visualising the clusters
+```{r}
+groups_mat <- as.matrix(clust$groups)
+data_by_subzones.std$SP_CLUSTER <- as.factor(groups_mat)
+st_geometry(data_by_subzones.std)<-data_by_subzones_sf$geometry
+qtm(data_by_subzones.std, "SP_CLUSTER")
+```
+
+
+## 7.4 Cluster Analysis
+```{r}
+st_geometry(data_by_subzones.std) <- NULL
+data_by_subzones.std$CLUSTER <- NULL
+aggregate2 <- aggregate(data_by_subzones.std,by= list(data_by_subzones.std$SP_CLUSTER),FUN = "mean")
+aggregate2$SP_CLUSTER <- NULL
+aggregate2 <- aggregate2 %>%
+  rename("SP_CLUSTER"=Group.1)
+
+plot_data <- function(maindata,attribute){
+  return(ggplot(maindata, aes_string(x="SP_CLUSTER",y=attribute, fill = "SP_CLUSTER")) + 
+   geom_bar(stat="identity", position = "dodge",size=0.5) + 
+    theme(legend.position = 'none')+
+   scale_fill_brewer(palette = "Set3"))}
+  
+private_plot <- plot_data(aggregate2,"Private_properties")
+shopping_plot <- plot_data(aggregate2,"Shopping_Infrastructures")
+business_plot <- plot_data(aggregate2,"Businesses")
+industry_plot <- plot_data(aggregate2,"Industries")
+govt_plot <- plot_data(aggregate2,"Govt_institutions")
+financial_plot <- plot_data(aggregate2,"Financials")
+young_plot <- plot_data(aggregate2,"YOUNG")
+aged_plot <- plot_data(aggregate2,"AGED")
+active_plot <- plot_data(aggregate2,"ACTIVE")
+density_plot <- plot_data(aggregate2,"DENSITY")
+HDB1_2_plot <- plot_data(aggregate2,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- plot_data(aggregate2,"HDB_3_and_4Room_Flats")
+HDB5_plot <- plot_data(aggregate2,"HDB_5Room_and_Executive_Flats")
+condo_plot <- plot_data(aggregate2,"Condominiums_and_Other_Apartments")
+landed_plot <- plot_data(aggregate2,"Landed_Properties")
+```
+
+To visualise the graphs, we arrange it and plot it.
+
+```{r fig.retina=3}
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+
+```
+### Interpretation
+Cluster one is the biggest and consists of business and industries.
+Cluster two consists of residential areas.
+Cluster three is similar to cluster two and consists residential infrastructure. However, it also consists of government institutions, as it is located in the central area.
+Cluster four consists of all the private properties, financial infrastructure, and governemnt institutions. This is located in the eastern region of Singapore.
+Cluster Five is located in the north east and dominates in HDB 5 room facilities, indicating that the residential population enjoy bigger homes over there.
+Cluster Six is a highly dense residential area, located in western singapore.
+
+# 8. Conclusion
+
+Hierarchical clustering is a better appraoch for socioeconomic area analysis as Singapore has residential areas, industrial parks, and government facilities split up all around Singapore. SKATER approach analyses the data in close spatial proximity. To have better findings fron this approach, we will need to increase the number of clusters.  
+

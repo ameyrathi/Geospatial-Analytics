@@ -1,0 +1,3 @@
+"0","#brazil_cities <- read.csv2(""data/aspatial/BRAZIL_CITIES.csv"")"
+"0","brazil_cities <- read_delim(file = ""data/aspatial/BRAZIL_CITIES.csv"", delim = "";"")"
+"0","metadata <- read.csv2(""data/aspatial/Data_Dictionary.csv"")"

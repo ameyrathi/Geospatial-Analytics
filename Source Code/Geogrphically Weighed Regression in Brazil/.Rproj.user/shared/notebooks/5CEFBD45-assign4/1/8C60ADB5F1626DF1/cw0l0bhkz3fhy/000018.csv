@@ -1,0 +1,56 @@
+"0","brazil.sf <- st_as_sf(brazil_cities,"
+"0","                            coords = c(""LONG"", ""LAT""),"
+"0","                      crs=4326)%>%"
+"0","  st_transform(29101)"
+"0","st_crs(brazil.sf)"
+"1","Coordinate Reference System:"
+"1","
+"
+"1","  User input:"
+"1"," "
+"1","EPSG:29101"
+"1"," "
+"1","
+"
+"1","  wkt:
+"
+"1",""
+"1","PROJCS[""SAD69 / Brazil Polyconic"",
+    GEOGCS[""SAD69"",
+        DATUM[""South_American_Datum_1969"",
+            SPHEROID[""GRS 1967 Modified"",6378160,298.25,
+                AUTHORITY[""EPSG"",""7050""]],
+            TOWGS84[-66.87,4.37,-38.52,0,0,0,0],
+            AUTHORITY[""EPSG"",""6618""]],
+        PRIMEM[""Greenwich"",0,
+            AUTHORITY[""EPSG"",""8901""]],
+        UNIT[""degree"",0.0174532925199433,
+            AUTHORITY[""EPSG"",""9122""]],
+        AUTHORITY[""EPSG"",""4618""]],
+    PROJECTION[""Polyconic""],
+    PARAMETER[""latitude_of_origin"",0],
+    PARAMETER[""central_meridian"",-54],
+    PARAMETER[""false_easting"",5000000],
+    PARAMETER[""false_northing"",10000000],
+    UNIT[""metre"",1,
+        AUTHORITY[""EPSG"",""9001""]],
+    AXIS[""X"",EAST],
+    AXIS[""Y"",NORTH],
+    AUTHORITY[""EPSG"",""29101""]]"
+"1",""
+"1","
+"
+"0","head(brazil.sf)"
+"1","Simple feature collection with 6 features and 79 fields"
+"1","
+"
+"1","geometry type:  POINT
+"
+"1","dimension:      XY
+"
+"1","bbox:           "
+"1","xmin: 5486142 ymin: 7859088 xmax: 6650626 ymax: 9808703"
+"1","
+"
+"1","CRS:            EPSG:29101
+"

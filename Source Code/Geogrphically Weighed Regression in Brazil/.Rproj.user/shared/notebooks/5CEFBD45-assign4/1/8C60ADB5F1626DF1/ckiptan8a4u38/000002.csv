@@ -1,0 +1,8 @@
+"0","data$CITY <- NULL"
+"0","data$STATE<- NULL"
+"0","data$code_muni<- NULL"
+"0","data$code_state<- NULL"
+"0","data$ESTIMATED_POP <- NULL"
+"0","data$IBGE_POP <- NULL"
+"0","data$GDP <- NULL"
+"0",""

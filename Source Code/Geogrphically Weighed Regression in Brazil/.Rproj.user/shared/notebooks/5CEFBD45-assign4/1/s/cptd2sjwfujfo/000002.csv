@@ -1,0 +1,2 @@
+"0","gdp_capita.fixed <- st_as_sf(gwr.fixed$SDF) %>%"
+"0","  st_transform(crs=4674)"

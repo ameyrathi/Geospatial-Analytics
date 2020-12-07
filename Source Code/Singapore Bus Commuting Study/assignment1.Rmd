@@ -1,0 +1,708 @@
+---
+title: "Spatial Clustering of Geographically Referenced Attribute: Singapore Public Bus Commuting Patterns Study"
+author: "Amey Rathi"
+date: "5/8/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 1
+    toc_float: true
+  
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importing required packages
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rgdal', 'spdep',  'tmap', 'tidyverse', 'sf', 'ggpubr')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+
+# Importing data
+
+## Importing tap in tap out data (already provided)
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tapData <- read_csv("data/aspatial/passenger volume by busstop.csv")
+#singapore <- st_read(dsn = "data/geospatial/master-plan-2014-subzone-boundary-no-sea/master-plan-2014-subzone-boundary-no-sea-shp", layer = "MP14_SUBZONE_NO_SEA_PL")
+singapore <- st_read(dsn = "data/geospatial/d2", layer = "MP14_SUBZONE_WEB_PL")
+population <- read_csv("data/aspatial/respopagesextod2011to2019.csv")
+busStopLocation <- st_read(dsn="data/geospatial/BusStopLocation_Jan2020", layer= "BusStop")
+```
+## Population data preperation
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+population <-population %>%
+  filter(Time==2019) %>%
+  group_by(SZ) %>%
+  summarise(value=sum(Pop)) %>%
+  rename( "SUBZONE_N"=SZ)
+```
+
+## Data wrangling for population/subzone
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+population$SUBZONE_N <- toupper(population$SUBZONE_N)
+singapore <- left_join(singapore, population, by="SUBZONE_N")
+```
+## Data wrangling for busstop/tapin-out
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tapData <- tapData %>%
+  select(PT_CODE, TOTAL_TAP_IN_VOLUME, TOTAL_TAP_OUT_VOLUME)%>%
+  group_by(PT_CODE) %>%
+  summarise(TAP_IN = sum(TOTAL_TAP_IN_VOLUME),
+            TAP_OUT = sum(TOTAL_TAP_OUT_VOLUME))%>%
+  rename("BUS_STOP_N"=PT_CODE)
+```
+
+## Join location of bus stop
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+busStopLocation <- st_set_crs(busStopLocation, 3414)
+singapore <- st_set_crs(singapore, 3414)
+
+st_transform(busStopLocation,3414)
+st_transform(singapore, 3414)
+
+busStops <- left_join(tapData,busStopLocation)
+busStops <- busStops %>%
+  select(BUS_STOP_N, TAP_IN, TAP_OUT, geometry)
+```
+## Making subzone table
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+subZone <- singapore %>%
+  select(OBJECTID, SUBZONE_N, value, geometry)%>%
+  rename("Area"=OBJECTID)
+```
+
+## Assigning subzone to bus stop
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+xy <- st_coordinates(singapore)
+
+x <- xy[,1]
+y <- xy[,2]
+pol <- xy[,5]
+poly <- data.frame(pol,x,y)
+
+points <- st_coordinates(busStopLocation)
+x <- points[,1]
+y <- points[,2]
+object <- busStopLocation$BUS_STOP_N
+
+points <- data.frame(object,x,y)
+
+library(mgcv)
+
+x <- split(poly$x, poly$pol)
+y <- split(poly$y, poly$pol)
+
+todo <- 1:nrow(points)
+Area <- rep.int("", nrow(points))
+pol <- names(x)
+
+# loop through polygons
+for (i in 1:length(x)) {
+  # the vertices of i-th polygon
+  bnd <- cbind(x[[i]], y[[i]])
+  # points to allocate
+  xy <- with(points, cbind(x[todo], y[todo]))
+  inbnd <- in.out(bnd, xy)
+  # allocation
+  Area[todo[inbnd]] <- pol[i]
+  # update 'todo'
+  todo <- todo[!inbnd]
+  }
+
+points$Area <- Area
+
+```
+
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+points2 <- points %>%
+  select(object,Area) %>%
+  rename("BUS_STOP_N"=object)
+table <- left_join(busStops,points2)
+table <- table %>%
+  select(BUS_STOP_N, TAP_IN, TAP_OUT, Area)
+table$Area <- as.numeric(table$Area)
+table <- left_join(subZone,table)
+```
+## Data preperation for regression model
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data <- table %>%
+  select( SUBZONE_N,value,TAP_IN,TAP_OUT) %>%
+  group_by(SUBZONE_N,value) %>%
+  summarise(TAP_IN=sum(TAP_IN),
+            TAP_OUT=sum(TAP_OUT)) %>%
+  drop_na()
+
+```
+
+# Creating regression for tap in
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+stats <- lm(TAP_IN~value,data)
+summary(stats)
+stats$coefficients
+data$tapINres <- stats$residuals
+
+plot(data$value, data$TAP_IN, main="Regression for Population on Tap In volumes in Buses",xlab="Population in Subzone",ylab="Tap In")
+abline(reg = stats,col='red')
+```
+
+
+From the regression model, we can derive the following: <br>
+  (1) The linear equation is y = 19.26x + 125402 <br>
+  (2) The slope of the regression line is 19.26, which signifies a positive relationship between population and tap in volumes in buses  <br>
+  (3) The intercept is 125402 <br>
+  (4) The R-squared value is 0.5816, which signifies that 58.16% of the variation in tap in data is due to the variation in population. <br>
+
+
+## Spatial Autocorrelaion
+The following code will create a choropleth map in order to visualise the Tap In Residual Data among different subzones in Singapore.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data2 <- st_as_sf(data)
+tm_shape(data2)+
+  tm_fill(col="tapINres",
+          style = "pretty",
+          palette = "-RdBu",
+          title = "Tap in Residual data")+
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha = 0.5)
+```
+
+Negative residuals (Subzones in blue) imply over prediction of data whereas Positive residuals (Subzones in red) imply underprediction of data. Visually, spatial correlation for residuals is not evident but a more formal test needs to be conducted to confirm this. Therefore, global Moran's test is performed on the residual data to validate if there is spatial correlation.
+<br>
+Firstly, weight matrix is created.
+The Queens weight matrix is created first in order to find out the average number of neighbours each subzone has and identify the subzones with lower number of connections.
+
+## Creating Queen's weight matrix
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+wm_q <- poly2nb(data2, queen = TRUE)
+summary(wm_q)
+plot(data2$geometry, border="lightgrey")
+plot(wm_q, st_centroid(data2$geometry), add = TRUE, col= "red")
+```
+From the summary data of the Queen's weighed matrix, each subzone has an average of 6 connections. However, there are 6 subzones with only 2 links. In order to make our weighed matrix uniform, an adaptive weighed matrix is being used with each subzone being assigned 7 neighbours.
+
+## Adaptive matrix
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+coords <- st_centroid(data2$geometry)
+
+wm_knn8 <- knn2nb(knearneigh(coords, k=7))
+
+plot(data2$geometry, border="lightgrey")
+plot(wm_knn8, st_centroid(data2$geometry), add = TRUE, col= "green")
+```
+
+### Standardise the rows
+The following code will standarise the weight for every subzone. As 7 neighbours are assigned to each subzone, the weight will therefore be 1/7 for each neighbour.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+rswm_knn8 <- nb2listw(wm_knn8, style="W", zero.policy = TRUE)
+```
+### Creating spatial lag values
+Spatial lag values assign the average Tap In value of neighbours for each subzone.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tapINres.lag <- lag.listw(rswm_knn8, data2$tapINres)
+data2$tapinLAG <- tapINres.lag
+```
+## Comparing Tap In Residual values and Spatially lagged Tap In Values
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tmap_mode("plot")
+a <- tm_shape(data2)+
+  tm_fill(col = "tapINres",
+          title = "Tap In Residuals")+
+  tm_layout(legend.outside = TRUE) +
+  tm_borders(alpha = 0.5)
+
+b <- tm_shape(data2)+
+  tm_fill(col = "tapinLAG",
+          title = "Tap in Residual Lag")+
+  tm_layout(legend.outside = TRUE) +
+  tm_borders(alpha = 0.5)
+
+
+tmap_arrange(a, b,asp=1, nrow = 1, sync = TRUE)
+```
+
+## Moran's I for regression residuals
+
+The null hypothesis is that the residuals obtained from the regression model of the relationship between population and bus tap in is randomised among different subzones in Singapore.
+
+The alternative hypothesis is that the residuals obtained from the regression model of the relationship between population and bus tap in is not randomised among different subzones in Singapore.
+
+The alpha (significance level) for this test is 0.05.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+lm.morantest(stats, listw=rswm_knn8, zero.policy=TRUE, alternative = "greater",
+ spChk=NULL, resfun=weighted.residuals, naSubset=TRUE)
+```
+The p-value is 0.724, which is above 0.05 and hence we do not reject the null hypothesis. However, to confirm our findings, we will run a Monte Carlo simulation 1000 times.
+
+### Monte Carlo for Moran's I test
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+set.seed(1234)
+bperm= moran.mc(data2$tapINres, listw=rswm_knn8, nsim=999, zero.policy = TRUE, na.action=na.omit)
+bperm
+
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Simulated Moran's I", main = "Monte Carlo Simulation Findings")
+abline(v=-0.023, col="red")
+```
+
+The Moran's I in the Monte Carlo simulation is in the middle, validating our findings of an insignificant p-value from the Moran's I test.
+
+### Conclusion
+The p-value is 0.724, which is above 0.05 and hence we do not reject the null hypothesis. The moran's I value is -0.0223 which is very close to 0,  implying that the residual data obtained from the population-tapin regression model conforms to spatial randomness among different subzones in Singapore. From the results of the test, we can conclude that the errors in the regression model are independent of one another, and their values do not depend on the value of residuals at neighbouring locations, i.e. there is no spatial correlation in the residuals.
+
+
+### Visualising spatial lag value using Moran's scatterplot
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+MS <- moran.plot(data2$tapINres, rswm_knn8, zero.policy = TRUE, spChk=FALSE, labels=as.character(data2$SUBZONE_N), xlab="residual", ylab="Spatially Lag residual")
+```
+
+### Spatial Correlogram
+Spatial Correlograms are plotted in order to identify the autocorrelation  of spatial observations when we increase the distance (lag) between them.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+MI_corr <- sp.correlogram(wm_knn8, data2$tapINres, order=6, method="I", style="W")
+plot(MI_corr, main="Spatial Correlogram")
+```
+
+The findings from the above graph show that the Moran's I value are all around 0 even when we increase the distance between them.
+
+# Analysis of Tap In Data
+Now, the Tap In Data itself is analysed. The Data is first analysed globally through Global Moran's I test in order to find if there is clustering and then analysed locally through local Moran's I test in order to find signifcant clusters, outliers, cold spots and hot spots.
+
+## Global Moran's I for Tap In Data
+
+The null hypothesis is that the volume of Bus Tap In is randomised among different subzones in Singapore.
+
+The alternative hypothesis is that the volume of Bus Tap In is not randomised among different subzones in Singapore.
+
+The alpha (significance level) for this test is 0.05.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+moran.test(data2$TAP_IN, listw=rswm_knn8, zero.policy = TRUE, na.action=na.omit,alternative = "two.sided")
+```
+The p-value is 4.092e-10, which is below 0.05 and hence we reject the null hypothesis. However, to confirm our findings, we will run a Monte Carlo simulation 1000 times.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+set.seed(1234)
+bperm= moran.mc(data2$TAP_IN, listw=rswm_knn8, nsim=999, zero.policy = TRUE, na.action=na.omit )
+bperm
+
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Simulated Moran's I", main="Findings from Monte Carlo Simulation")
+abline(v=0.171, col="red")
+```
+
+The Moran’s I value is in the extreme right when compared with the Monte Carlo simulation i, validating our findings of an significant p-value from the Moran’s I test.
+
+### Conclusion
+The p-value is 4.092e-10, which is below 0.05 and hence we reject the null hypothesis. Therefore, the volume of Bus Tap In is not randomised among different subzones in Singapore, implying a spatial relationship between them. Furthermore, the Moran's I value is 0.171 which is greather than 0,  implying that the Tap In data is positively clustered among different subzones in Singapore.
+
+## Local Moran's I
+From the code below, Local Moran's I test is performed locally through which I value and p-value is obtained for every subzone.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+fips <- order(data2$SUBZONE_N)
+localMI <- localmoran(data2$TAP_IN, rswm_knn8)
+head(localMI)
+```
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+#printCoefmat(data.frame(localMI[fips,], row.names=data2$SUBZONE_N[fips]), check.names=FALSE)
+
+data2.localMI <- cbind(data2,localMI)
+```
+
+A choropleth map of the local moran's I value is plotted beside a choropleth map indicating the regions which have a significant p-value, i.e. a p-value which is less than 0.05.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tmap_mode("plot")
+localMI.map <- tm_shape(data2.localMI) +
+  tm_polygons(col = "Ii",
+          style = "pretty",
+          title = "Local Moran's I value",
+          palette= "-RdBu") +
+  tm_layout(legend.outside = TRUE) +
+  tm_view(set.zoom.limits = c(10,16)) +
+  tm_borders(alpha = 0.5)
+
+pvalue.map <- tm_shape(data2.localMI) +
+  tm_polygons(col = "Pr.z...0.",
+          breaks=c(-Inf,0.05, Inf),
+          palette=c("blue","lightgrey"),
+          title = "Local Moran's p-values") +
+  tm_view(set.zoom.limits = c(10,16)) +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(localMI.map, pvalue.map, asp=1, nrow=1, sync = TRUE)
+
+```
+
+The dark blue regions on the map on the right shows the regions which have p-values less than 0.05 and is hence statistically significant to determine these regions to be either clusters or outliers. Clusters exhibit  positive I values, which are shaded red in the map on the left. Outliers exhibit negative I values, which are shaded blue in the map on the left.
+
+To understand characteristics of these regions, LISA cluster map is created!
+
+# Creating LISA Cluster Map
+
+## Plotting Moran Scatterplot
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+nci <- moran.plot(data2$TAP_IN, rswm_knn8, labels=as.character(data2$SUBZONE_N), xlab="Residual Values", ylab="Spatially Lag residuals")
+```
+## Moran Scatterplot with standardised variable
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data2$Z.TAP_IN <- scale(data2$TAP_IN) %>% as.vector
+nci2 <- moran.plot(data2$Z.TAP_IN, rswm_knn8, labels=as.character(data2$SUBZONE_N), xlab="z-residual", ylab="Spatially Lag z-residual")
+```
+## Lisa map preperation
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+TAP_IN.lag <- lag.listw(rswm_knn8, data2$TAP_IN)
+data2$TAP_IN_LAG <- TAP_IN.lag
+
+#DV <- data2$tapINres - mean(data2$tapINres)
+#C_mI <- localMI[,1] - mean(localMI[,1])
+DV <- data2$Z.TAP_IN
+C_mI <- data2$TAP_IN_LAG
+signif <- 0.05
+quadrant[DV >0 & C_mI>0] <- 4
+quadrant[DV <0 & C_mI<0] <- 1
+quadrant[DV <0 & C_mI>0] <- 2
+quadrant[DV >0 & C_mI<0] <- 3
+quadrant[localMI[,5]>signif] <- 0
+
+data2.localMI$quadrant <- quadrant
+colors <- c("#ffffff", "#2c7bb6", "#abd9e9", "#fdae61", "#d7191c")
+clusters <- c("insignificant", "low-low", "low-high", "high-low", "high-high")
+
+tmap_mode("plot")
+tm_shape(data2.localMI) +
+  tm_fill(col = "quadrant", style = "cat", palette = colors[c(sort(unique(quadrant)))+1], labels = clusters[c(sort(unique(quadrant)))+1], popup.vars = c("SUBZONE_N")) +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha=0.5)
+```
+
+As seen in the map above, there are various subzones in the "high-high" quadrant. High-High refers to a high tap-in value in the subzone as well as high tap in values in their neighbours. Groupings of these regions can be found majorly in the East part of Singapore (Geylang East,  Kampong Ubi, Kembangan, Frankel, Bedok South, Bedok North, Bedok Reservoir, Tampines West, Simei, Tampines East, Pasir Drive, Pasir Ris Central ), the North part of Singapore (North Coast, Senoko North, Woodlands regional center, Woodlands East, Yishun West, Yishun Central, Yishun East, Yishun South ) and some locations in North-East and Western region of Singapore.
+
+## Performing Getis-Ord Statistics to identify Hot spots and Cold Spots
+
+The Gi value is computed for each subzone through which the p-value is calculated for each subzone.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+fips <- order(data2$TAP_IN)
+gi.fixed <- localG(data2$TAP_IN, rswm_knn8)
+gi.fixed
+data2.gi <- cbind(data2, as.matrix(gi.fixed))
+names(data2.gi)[9] <- "gstat"
+
+pvalue2sided<-2*pnorm(-abs(data2.gi$gstat))
+data2.gi$pval <- pvalue2sided
+
+
+```
+## Visualise Zones with Significant P-value
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+a<-tm_shape(data2.gi) +
+  tm_fill(col = "gstat",
+          style="pretty",
+          palette="-RdBu",
+          title = "Gi values") +
+  tm_view(set.zoom.limits = c(10,17)) +
+  tm_borders(alpha = 0.5)
+
+b<-tm_shape(data2.gi) +
+  tm_fill(col = "pval",
+          breaks=c(-Inf,0.05, Inf),
+          palette=c("blue","lightgrey"),
+          title = "p-values") +
+  tm_view(set.zoom.limits = c(10,17)) +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(a, b, asp=1, nrow=1, sync = TRUE)
+
+```
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data2.gi <- data2.gi %>%
+  mutate("Type"= case_when(pval<0.05 & gstat<=0 ~ "Significant Cold Spot",
+                          pval>=0.05 & gstat<=0 ~ "Insignificant Cold Spot",
+                          pval<0.05 & gstat>0 ~ "Significant Hot Spot",
+                          pval>=0.05 & gstat>0 ~ "Insignificant Hot Spot"))
+
+tm_shape(data2.gi) +
+  tm_fill(col = "Type",
+          style = "pretty",
+          palette= c("lightblue","lightcoral","red"),
+          title = "Gi Analysis") +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha = 0.5)
+```
+
+In the choropleth map above, subzones shaded in red are  hot spot areas and subzones shaded in blue are the cold spot areas. The subzones shaded in dark red are significant Hot Spots, however, there are no significant cold spots.
+Hot Spots are present in all regions other than Central Singapore (Eastern, Western and Northern), indicating excessive usage of bus transportation in residential area as compared to the business district. The cold spot areas, on the other hand, are mainly subzones in Central Singapore.
+
+
+# Creating Regression Model for tap out
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+stats2 <- lm(TAP_OUT~value,data)
+summary(stats2)
+stats2$coefficients
+data$tapOUTres <- stats2$residuals
+
+plot(data$value, data$TAP_OUT, main="Regression for Population on Tap Out volumes in Buses",xlab="Population in Subzone",ylab="Tap Out")
+abline(reg = stats2,col='red')
+```
+
+From the regression model, we can derive the following: <br>
+  (1) The linear equation is y = 19.17x + 125936 <br>
+  (2) The slope of the regression line is 19.17, which signifies a positive relationship between population and tap in volumes in buses <br>
+  (3) The intercept is 125936 <br>
+  (4) The R-squared value is 0.5948, which signifies that 59.48% of the variation in tap in data is due to the variation in population.<br>
+
+## Comparison of TAP-IN and TAP-OUT regression models
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+plot(data$value, data$TAP_OUT, main="Regression for Population on Tap Out volumes in Buses",xlab="Population in Subzone",ylab="Tap Out")
+abline(reg = stats2,col='red')
+abline(reg = stats,col='blue')
+
+```
+
+The co-inciding lines suggest that both tap in and tap out follow a similar relationship with the population in the subzone!
+
+Coming back to the analysis of Tap Out data, we will now find out if any spatial autocorrelation is present in the residual data of the regression model.
+## Spatial Autocorrelaion
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tmap_mode("plot")
+data3 <- st_as_sf(data)
+tm_shape(data3)+
+  tm_fill(col="tapOUTres",
+          style = "pretty",
+          palette = "-RdBu",
+          title = "Tap Out Residual data")+
+  tm_borders(alpha = 0.5)
+tmap_mode("plot")
+```
+Negative residuals (Subzones in blue) imply over prediction of data whereas Positive residuals (Subzones in red) imply underprediction of data. Visually, spatial correlation for residuals is not evident but a more formal test needs to be conducted to confirm this. Therefore, global Moran’s test is performed on the residual data to validate if there is spatial correlation.
+
+
+## Moran’s I for regression residuals
+The null hypothesis is that the residuals obtained from the regression model of the relationship between population and bus tap out is randomised among different subzones in Singapore.
+
+The alternative hypothesis is that the residuals obtained from the regression model of the relationship between population and bus tap out is not randomised among different subzones in Singapore.
+
+The alpha (significance level) for this test is 0.05.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+lm.morantest(stats2, listw=rswm_knn8, zero.policy=TRUE, alternative = "greater",
+ spChk=NULL, resfun=weighted.residuals, naSubset=TRUE)
+```
+The p-value is 0.478, which is above 0.05 and hence we do not reject the null hypothesis. However, to confirm our findings, we will run a Monte Carlo simulation 1000 times.
+### Monte Carlo simulation for Moran's I
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+set.seed(1234)
+bperm= moran.mc(data3$tapOUTres, listw=rswm_knn8, nsim=999, zero.policy = TRUE, na.action=na.omit)
+bperm
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Simulated Moran's I", main = "Findings from Monte Carlo Simulation")
+abline(v=-0.002589963, col="red")
+```
+
+The Moran’s I in the Monte Carlo simulation is in the middle, validating our findings of an insignificant p-value from the Moran’s I test.
+
+### Conclusion
+The p-value is 0.478, which is above 0.05 and hence we do not reject the null hypothesis. The moran’s I value is -0.002589963 which is very close to 0, implying that the residual data obtained from the population-tapin regression model conforms to spatial randomness among different subzones in Singapore. From the results of the test, we can conclude that the errors in the regression model are independent of one another, and their values do not depend on the value of residuals at neighbouring locations, i.e. there is no spatial correlation in the residuals.
+
+### Visualising spatial lag value using Moran’s scatterplot
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+MS <- moran.plot(data3$tapOUTres, rswm_knn8, zero.policy = TRUE, spChk=FALSE, labels=as.character(data2$SUBZONE_N), xlab="residual", ylab="Spatially Lag residual")
+```
+
+### Spatial Correlogram
+Spatial Correlograms are plotted in order to identify the autocorrelation of spatial observations when we increase the distance (lag) between them.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+MI_corr <- sp.correlogram(wm_knn8, data2$tapINres, order=6, method="I", style="B")
+plot(MI_corr, main = "Spatial Correlogram")
+```
+
+The findings from the above graph show that the Moran’s I value are all around 0 even when we increase the distance between them.
+
+# Analysis of Tap Out Data
+
+## Global Moran’s I for Tap Out Data
+
+The null hypothesis is that the volume of Bus Tap Out is randomised among different subzones in Singapore.
+
+The alternative hypothesis is that the volume of Bus Tap Out is not randomised among different subzones in Singapore.
+
+The alpha (significance level) for this test is 0.05.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+moran.test(data3$TAP_OUT, listw=rswm_knn8, zero.policy = TRUE, na.action=na.omit,alternative = "two.sided")
+```
+The p-value is 8.493e-11, which is below 0.05 and hence we reject the null hypothesis. However, to confirm our findings, we will run a Monte Carlo simulation 1000 times.
+
+### Monte Carlo Simulation for Moran's i
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+set.seed(1234)
+bperm= moran.mc(data3$TAP_OUT, listw=rswm_knn8, nsim=999, zero.policy = TRUE, na.action=na.omit)
+bperm
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Simulated Moran's I", main="Findings from Monte Carlo Simulation")
+abline(v=0.19, col="red")
+```
+
+The Moran’s I value is in the extreme right when compared with the Monte Carlo simulation i, validating our findings of an significant p-value from the Moran’s I test.
+
+### Conclusion
+The p-value is 8.493e-11, which is below 0.05 and hence we reject the null hypothesis. Therefore, the volume of Bus Tap Out is not randomised among different subzones in Singapore, implying a spatial relationship between them. Furthermore, the Moran’s I value is 0.171 which is greather than 0, implying that the Tap In data is positively clustered among different subzones in Singapore.
+
+## Local Moran's I for Tap Out data
+From the code below, Local Moran’s I test is performed locally through which I value and p-value is obtained for every subzone.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+fips <- order(data3$SUBZONE_N)
+localMI <- localmoran(data3$TAP_OUT, rswm_knn8)
+head(localMI)
+#printCoefmat(data.frame(localMI[fips,], row.names=data2$SUBZONE_N[fips]), check.names=FALSE)
+data3.localMI <- cbind(data3,localMI)
+```
+
+A choropleth map of the Local Moran’s I value is plotted beside a choropleth map indicating the regions which have a significant p-value, i.e. a p-value which is less than 0.05.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+tmap_mode("plot")
+localMI.map <- tm_shape(data3.localMI) +
+  tm_fill(col = "Ii",
+          style = "pretty",
+          title = "Local Moran's I value",
+          palette= "-RdBu") +
+  tm_layout(legend.outside = TRUE) +
+  tm_view(set.zoom.limits = c(10,16)) +
+  tm_borders(alpha = 0.5)
+
+pvalue.map <- tm_shape(data3.localMI) +
+  tm_fill(col = "Pr.z...0.",
+          breaks=c(-Inf,0.05, Inf),
+          palette=c("blue","lightgrey"),
+          title = "local Moran's I p-values") +
+  tm_layout(legend.outside = TRUE) +
+  tm_view(set.zoom.limits = c(10,16)) +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(localMI.map, pvalue.map, asp=1, nrow=1, sync = TRUE)
+tmap_mode("plot")
+```
+
+The dark blue regions on the map on the right shows the regions which have p-values less than 0.05 and is hence statistically significant to determine these regions to be either clusters or outliers. Clusters exhibit positive I values, which are shaded red in the map on the left. Outliers exhibit negative I values, which are shaded blue in the map on the left.
+
+To understand characteristics of these regions, LISA cluster map is created!
+# Creating LISA clusters map
+
+## Plotting Moran Scatterplot
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+nci <- moran.plot(data3$TAP_OUT, rswm_knn8, labels=as.character(data3$SUBZONE_N), xlab="Residual Values", ylab="Spatially Lag residuals")
+```
+
+## Moran Scatterplot with standardised variable
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data3$Z.TAP_OUT <- scale(data3$TAP_OUT) %>% as.vector
+nci2 <- moran.plot(data3$Z.TAP_OUT, rswm_knn8, labels=as.character(data3$SUBZONE_N), xlab="z-residual", ylab="Spatially Lag z-residual")
+```
+
+## Visualising the LISA Cluster map
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+TAP_OUT.lag <- lag.listw(rswm_knn8, data3$TAP_OUT)
+data3$TAP_OUT_LAG <- TAP_OUT.lag
+
+#DV <- data2$tapINres - mean(data2$tapINres)
+#C_mI <- localMI[,1] - mean(localMI[,1])
+DV <- data3$Z.TAP_OUT
+C_mI <- data3$TAP_OUT_LAG
+signif <- 0.05
+quadrant[DV >0 & C_mI>0] <- 4
+quadrant[DV <0 & C_mI<0] <- 1
+quadrant[DV <0 & C_mI>0] <- 2
+quadrant[DV >0 & C_mI<0] <- 3
+quadrant[localMI[,5]>signif] <- 0
+
+data3.localMI$quadrant <- quadrant
+colors <- c("#ffffff", "#2c7bb6", "#abd9e9", "#fdae61", "#d7191c")
+clusters <- c("insignificant", "low-low", "low-high", "high-low", "high-high")
+
+tmap_mode("plot")
+tm_shape(data3.localMI) +
+  tm_fill(col = "quadrant", style = "cat", palette = colors[c(sort(unique(quadrant)))+1], labels = clusters[c(sort(unique(quadrant)))+1], popup.vars = c("SUBZONE_N")) +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha=0.5)
+```
+
+As seen in the map above, there are various subzones in the "high-high" quadrant. High-High refers to a high tap-out value in the subzone as well as high tap in values in their neighbours. Groupings of these regions can be found majorly in the East part of Singapore (Geylang East,  Kampong Ubi, Kembangan, Frankel, Bedok South, Bedok North,  Tampines West, Simei, Tampines East, Pasir Drive, Pasir Ris Central ), the North part of Singapore (North Coast, Senoko North, Woodlands regional center, Woodlands East, Yishun West, Yishun Central, Yishun East ) and some locations in North-East and Western region of Singapore.
+
+
+We will now perform another local statistics to find out hot spots and cold spots.
+
+# Performing Getis-Ord Statistics to identify Hot spots and Cold Spots
+The Gi value is computed for each subzone through which the p-value is calculated for each subzone.
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+fips <- order(data3$TAP_OUT)
+gi.fixed <- localG(data3$TAP_OUT, rswm_knn8)
+
+data3.gi <- cbind(data3, as.matrix(gi.fixed))
+names(data3.gi)[9] <- "gstat"
+pvalue2sided<-2*pnorm(-abs(data3.gi$gstat))
+data3.gi$pval <- pvalue2sided
+```
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+summary(data3.gi$gstat)
+a<-tm_shape(data3.gi) +
+  tm_fill(col = "gstat",
+          style = "pretty",
+          palette="-RdBu",
+          title = "local Gi") +
+  tm_view(set.zoom.limits = c(10,17)) +
+  tm_borders(alpha = 0.5)
+
+b<-tm_shape(data3.gi) +
+  tm_fill(col = "pval",
+          breaks=c(-Inf,0.05, Inf),
+          palette=c("blue1","grey90"),
+          title = "p-values") +
+  tm_view(set.zoom.limits = c(10,17)) +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(a, b, asp=1, nrow=1, sync = TRUE)
+```
+
+These two maps can be combined to obtain values a single map which can be classified as follows: <br>
+  (1) Insignificant Cold Spot [Negative Gi Value, p-value>=0.05] <br>
+  (2) Significant Cold Spot [Negative Gi Value, p-value<0.05] <br>
+  (3) Insignificant Hot Spot [Positive Gi Value, p-value>=0.05] <br>
+  (4) Significant Hot Spot [Positive Gi Value, p-value<0.05] <br>
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+data3.gi <- data3.gi %>%
+  mutate("Type"= case_when(pval<0.05 & gstat<=0 ~ "Significant Cold Spot",
+                          pval>=0.05 & gstat<=0 ~ "Insignificant Cold Spot",
+                          pval<0.05 & gstat>0 ~ "Significant Hot Spot",
+                          pval>=0.05 & gstat>0 ~ "Insignificant Hot Spot"))
+
+tm_shape(data3.gi) +
+  tm_fill(col = "Type",
+          style = "pretty",
+          palette= c("lightblue","lightcoral","red"),
+          title = "Gi Analysis") +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha = 0.5)
+tmap_mode("plot")
+```
+In the choropleth map above, subzones shaded in red are  hot spot areas and subzones shaded in blue are the cold spot areas. The subzones shaded in dark red are significant Hot Spots, however, there are no significant cold spots.
+Hot Spots are present in all regions other than Central Singapore (Eastern, Western and Northern), indicating excessive usage of bus transportation in residential area as compared to the business district. The cold spot areas, on the other hand, are mainly subzones in Central Singapore.
+This resembles to the findings from the Tap In Data.
+
+# Final Conclusion
+
+Moran's test was widely used in this assignment to determine the presence of spatial autocorrelation. Global Moran's I test for Tap in and Tap out residual data indicated that there is autocorrelation among the residual data. This validates that there is no systematic error in the regression models, and the deviations are justified. By performing Global Moran's I test on Tap in and Tap out data, a positive autocorrelation was found indicating that there is spatial relationship between the tap data and subzones. Two statistical tests in local analysis (Getis-Ord and Local Moran's) indicated the presence of "high" clusters among the suburban regions of Singapore.
+
+

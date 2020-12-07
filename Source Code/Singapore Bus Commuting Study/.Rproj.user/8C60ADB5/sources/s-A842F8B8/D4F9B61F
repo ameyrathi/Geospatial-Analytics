@@ -1,0 +1,33 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1588923744122.000,
+    "dirty" : false,
+    "encoding" : "",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "D4F9B61F",
+    "lastKnownWriteTime" : 4503744763,
+    "last_content_update" : 1588923744122,
+    "path" : null,
+    "project_path" : null,
+    "properties" : {
+        "cacheKey" : "AA54396D",
+        "caption" : "tapData",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=tapData&cache_key=AA54396D",
+        "displayedObservations" : 5030,
+        "environment" : "",
+        "expression" : "tapData",
+        "object" : "tapData",
+        "preview" : 0,
+        "totalObservations" : 5030,
+        "variables" : 3
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_dataframe"
+}

@@ -1,0 +1,48 @@
+---
+title: "assignment2"
+author: "Amey Rathi"
+date: "5/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Importing Required Packages 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rgdal', 'maptools', 'raster','spatstat', 'tmap', 'sf', 'tidyverse')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+# Importing Data 
+```{r}
+airbnb <- read_csv("data/aspatial/listings.csv")
+singapore <- st_read(dsn = "data/geospatial", layer = "CostalOutline")
+mpsz <- st_read(dsn = "data/geospatial", layer = "MP14_SUBZONE_WEB_PL")
+```
+### Converting airbnb to 3414 crs
+```{r}
+singapore
+mpsz
+airbnb<-st_as_sf(airbnb,coords = c("longitude","latitude"),crs=4326)
+airbnb2 <- st_transform(airbnb,3414)
+```
+
+
+
+# Section A: Nation Wide Analysis 
+
+
+## Viewing all the locations of airbnb listings by house type
+```{r}
+tmap_mode("view")
+tm_shape(airbnb)+
+  tm_dots(col = "red",
+           size = 1,
+           border.col = "black",
+           border.lwd = 1)
+```

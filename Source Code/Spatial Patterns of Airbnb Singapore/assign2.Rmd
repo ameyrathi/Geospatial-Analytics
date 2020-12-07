@@ -1,0 +1,1181 @@
+---
+title: "Spatial Point Patterns Analysis of Airbnb Listing in Singapore"
+author: "Amey Rathi"
+date: "5/13/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Importing Required Packages 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+packages = c('rgdal', 'maptools', 'raster','spatstat', 'tmap', 'sf', 'tidyverse','rosm','tmaptools','leaflet','mapview')
+for (p in packages){
+if(!require(p, character.only = T)){
+install.packages(p)
+}
+library(p,character.only = T)
+}
+```
+# Importing Data 
+```{r warning=FALSE}
+airbnb <- read_csv("data/aspatial/listings.csv")
+singapore <- readOGR(dsn = "data/geospatial", layer = "MP14_REGION_WEB_PL")
+mpsz <- st_read(dsn = "data/geospatial/master-plan-2014-subzone-boundary-no-sea-shp", layer = "MP14_SUBZONE_NO_SEA_PL")
+```
+### Converting airbnb to 3414 crs
+
+```{r warning=FALSE}
+airbnb4326<-st_as_sf(airbnb,coords = c("longitude","latitude"),crs=4326)
+airbnb3414<-st_transform(airbnb4326,3414)
+crs(airbnb)
+```
+# Section A: Nation Wide Analysis of Airbnb Listings
+
+## Viewing all the locations of airbnb listings by house type
+
+The code chunk below creates a map consisting of airbnb listings by house type with openstreemap as its basemap. Therefore, it is created in the view mode. For publishing purposes, a screenshot of the map is attached below it.
+```{r warning=FALSE, eval=FALSE}
+tmap_mode("view")
+tm_shape(airbnb3414)+
+  tm_dots(col = "room_type",
+           size = 0.05,
+           border.col = "black",
+           border.lwd = 1,
+          alpha=0.7,
+          title = "Room type")+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout(main.title = "Distribution of Airbnb listings by Room Type in Singapore")
+tmap_mode("plot")
+```
+
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/map1.png)
+
+The map above shows all the Airbnb listings by Room type in Singapore. As seen above, private room, the listing which is indicated in purple is the most popular room type as it can be seen consistently throughout the country in all the regions. Entire home/apartment, which is indicated in green is the second most popular Room type which is also seen in all parts of Singapore, however, most of them are concentrated in central region of Singapore. Shared view is the third most popular room type, and has a few locations distributed among all the regions in Singapore. Lastly, Hotel room is the least popular room type in airbnb and can be found only in the central region of Singapore. To gain deeper understanding and differences in the Room types, we will perform statistcal testing on the data in the next section. 
+
+## Performing First Order Spatial Analysis 
+
+  To understand the distribution of the different room types in Singapore, first order spatial analysis is performed on each of the room types to understand if the observations vary from place to place. A distance based approach is preferred over a density based approach due to the fact that there are many regions in Singapore which are unhabitable, such as Central Catchement Area and the Western Catchement Area as they consist of water bodies and vegetation. A nearest neighbour analysis will be performed through the Clark and Evans test which will help us determine if patial randomness exists in the distribution of every room type.
+  
+Before the tests are conducted, the data is prepared for every room type. This involves transforming the data from sf to ppp format so that the Clark Evans Test can be performed. Furthermore, there is a check for every room type if duplicated data exists as it is very likely for properties from the same building will have the same coordinates, hence it must be jittered, i.e. shifted minimally so that duplicated data can be eradicated.
+  
+### Preparing data for each room type
+  
+```{r warning=FALSE}
+sg_owin <- as(singapore, "owin")
+
+airbnb_spatial <- as(airbnb3414, "Spatial")
+airbnb_sp <- as(airbnb_spatial, "SpatialPoints")
+airbnb_ppp <- as(airbnb_sp,"ppp")
+
+home <- airbnb3414 %>%
+  filter(room_type=="Entire home/apt")
+home_spatial <- as(home, "Spatial")
+home_sp <- as(home_spatial, "SpatialPoints")
+home_ppp <- as(home_sp,"ppp")
+
+hotel <- airbnb3414 %>%
+  filter(room_type=="Hotel room")
+hotel_spatial <- as(hotel, "Spatial")
+hotel_sp <- as(hotel_spatial, "SpatialPoints")
+hotel_ppp <- as(hotel_sp,"ppp")
+
+shared <- airbnb3414 %>%
+  filter(room_type=="Shared room")
+shared_spatial <- as(shared, "Spatial")
+shared_sp <- as(shared_spatial, "SpatialPoints")
+shared_ppp <- as(shared_sp,"ppp")
+
+private <- airbnb3414 %>%
+  filter(room_type=="Private room")
+private_spatial <- as(private, "Spatial")
+private_sp <- as(private_spatial, "SpatialPoints")
+private_ppp <- as(private_sp,"ppp")
+
+home_ppp <- home_ppp[sg_owin]
+private_ppp<-private_ppp[sg_owin]
+hotel_ppp <-hotel_ppp[sg_owin]
+shared_ppp <-shared_ppp[sg_owin]
+
+```
+### Checking for duplicated data 
+
+To reduce jittering the data, we will check for duplicates in every room type and jitter them individually. The code below does that.  
+
+```{r warning=FALSE}
+any(duplicated(home_ppp))
+sum(multiplicity(home_ppp) > 1)
+sum(multiplicity(hotel_ppp) > 1)
+sum(multiplicity(shared_ppp) > 1)
+sum(multiplicity(private_ppp) > 1)
+
+home_ppp_jit <- rjitter(home_ppp, retry=TRUE, nsim=1, drop=TRUE)
+hotel_ppp_jit <- rjitter(hotel_ppp, retry=TRUE, nsim=1, drop=TRUE)
+shared_ppp_jit <- rjitter(shared_ppp, retry=TRUE, nsim=1, drop=TRUE)
+private_ppp_jit <- rjitter(private_ppp, retry=TRUE, nsim=1, drop=TRUE)
+
+sum(multiplicity(home_ppp_jit) > 1)
+sum(multiplicity(hotel_ppp_jit) > 1)
+sum(multiplicity(shared_ppp_jit) > 1)
+sum(multiplicity(private_ppp_jit) > 1)
+
+```
+### Plotting the data 
+To ensure that the converted correctly, we will plot each of the room types individually below.
+
+```{r warning=FALSE}
+par(mfrow=c(2,2)) 
+plot(sg_owin, main="Private home/apartments listed on Airbnb")
+plot(home_ppp_jit, add=TRUE)
+plot(sg_owin, main="Hotel rooms listed on Airbnb")
+plot(hotel_ppp_jit, add=TRUE)
+plot(sg_owin, main="Shared rooms listed on Airbnb")
+plot(shared_ppp_jit, add=TRUE)
+plot(sg_owin, main="Private rooms listed on Airbnb")
+plot(private_ppp_jit, add=TRUE)
+```
+
+### Clark and evans test for Entire home/Apartment
+The test hypotheses are:
+
+Null Hypothesis: The distribution of entire home/apartment on Airbnb in Singapore are randomly distributed.
+
+Alternate Hypothesis: The distribution of entire home/apartment on Airbnb in Singapore are not randomly distributed.
+
+The 95% confidence interval will be used.
+
+```{r warning=FALSE}
+set.seed(1234)
+clarkevans.test(home_ppp_jit,
+                correction="none",
+                clipregion="sg_owin",
+                alternative=c("two.sided"),
+                nsim=99)
+
+```
+The p-value (0.002) is less than 0.05, hence we can reject the null hypothesis and conclude that we are 95% confident that the distribution of entire home/apartment on Airbnb in Singapore are not randomly distributed. Furthermore, as the R value (0.25) is less than one, there is a significant pattern of clustering among entire home/apartment on Airbnb in Singapore.
+
+### Clark and evans test for Hotel rooms
+The test hypotheses are:
+
+Null Hypothesis: The distribution of hotel rooms on Airbnb in Singapore are randomly distributed.
+
+Alternate Hypothesis: The distribution of hotel rooms on Airbnb in Singapore are not randomly distributed.
+
+The 95% confidence interval will be used.
+```{r warning=FALSE}
+clarkevans.test(hotel_ppp_jit,
+                correction="none",
+                clipregion="sg_owin",
+                alternative=c("two.sided"),
+                nsim=99)
+```
+The p-value (0.002) is less than 0.05, hence we can reject the null hypothesis and conclude that we are 95% confident that the distribution of hotel rooms on Airbnb in Singapore are not randomly distributed. Furthermore, as the R value (0.20) is less than one, there is a significant pattern of clustering among hotel rooms on Airbnb in Singapore.
+
+### Clark and evans test for Private rooms
+The test hypotheses are:
+
+Null Hypothesis: The distribution of private rooms on Airbnb in Singapore are randomly distributed.
+
+Alternate Hypothesis: The distribution of private rooms on Airbnb in Singapore are not randomly distributed.
+
+The 95% confidence interval will be used.
+```{r warning=FALSE}
+clarkevans.test(private_ppp_jit,
+                correction="none",
+                clipregion="sg_owin",
+                alternative=c("two.sided"),
+                nsim=99)
+```
+The p-value (0.002) is less than 0.05, hence we can reject the null hypothesis and conclude that we are 95% confident that the distribution of private rooms on Airbnb in Singapore are not randomly distributed. Furthermore, as the R value (0.39) is less than one, there is a significant pattern of clustering among private rooms on Airbnb in Singapore.
+
+### Clark and evans test for Shared rooms
+The test hypotheses are:
+
+Null Hypothesis: The distribution of shared rooms on Airbnb in Singapore are randomly distributed.
+
+Alternate Hypothesis: The distribution of shared rooms on Airbnb in Singapore are not randomly distributed.
+
+The 95% confidence interval will be used.
+```{r warning=FALSE}
+clarkevans.test(shared_ppp_jit,
+                correction="none",
+                clipregion="sg_owin",
+                alternative=c("two.sided"),
+                nsim=99)
+```
+The p-value (0.002) is less than 0.05, hence we can reject the null hypothesis and conclude that we are 95% confident that the distribution of shared rooms on Airbnb in Singapore are not randomly distributed. Furthermore, as the R value (0.40) is less than one, there is a significant pattern of clustering among shared rooms on Airbnb in Singapore.
+
+## Conclusion
+All the four room types show significant patterns of clustering, with hotel rooms exhibiting the most amount of clustering and shared rooms exhibiting the least amount of clustering. To gain a deeper insight on the spatial arrangement of the different room types, the data will be analysed through kernel density  maps.
+
+## Kernel Density Estimation
+
+### Plotting kernal density maps 
+
+```{r}
+par(mfrow = c(2, 2))
+
+home_ppp_jit.km <- rescale(home_ppp_jit, 1000, "km")
+hotel_ppp_jit.km <- rescale(hotel_ppp_jit, 1000, "km")
+shared_ppp_jit.km <- rescale(shared_ppp_jit, 1000, "km")
+private_ppp_jit.km <- rescale(private_ppp_jit, 1000, "km")
+
+kde_home_bw <- density(home_ppp_jit.km, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+plot(kde_home_bw, main="Full home/apartment kernel density")
+kde_hotel_bw <- density(hotel_ppp_jit.km, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+plot(kde_hotel_bw, main="Hotel rooms kernel density")
+kde_shared_bw <- density(shared_ppp_jit.km, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+plot(kde_shared_bw, main="Shared rooms kernel density")
+kde_private_bw <- density(private_ppp_jit.km, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+plot(kde_private_bw, main="Private rooms kernel density")
+
+kde_home_unscalled <- density(home_ppp_jit, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+kde_hotel_unscalled <- density(hotel_ppp_jit, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+kde_shared_unscalled <- density(shared_ppp_jit, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+kde_private_unscalled <- density(private_ppp_jit, sigma=bw.scott, edge=FALSE, kernel="gaussian")
+```
+
+From the above kernel density maps, we can derive that all the room types are concentrated in the central region of Singapore. However, colour in each of the maps are in reference to its own scale and are not for comparison purposes. The KDEs are plotted against each other to identify the region in which each of these room types are concentrated in.
+
+To understand these densities better, the KDE is converted into a raster layer and then plotted on an openstreetmap in order to spatially understand the data better.
+
+
+### Conversion of gridded objectss into raster data 
+```{r warning=FALSE}
+kde_home_raster <- raster(kde_home_unscalled)
+kde_private_raster <- raster(kde_private_unscalled)
+kde_shared_raster <- raster(kde_shared_unscalled)
+kde_hotel_raster <- raster(kde_hotel_unscalled)
+
+projection(kde_home_raster) <- CRS("+init=EPSG:3414")
+projection(kde_private_raster) <- CRS("+init=EPSG:3414")
+projection(kde_shared_raster) <- CRS("+init=EPSG:3414")
+projection(kde_hotel_raster) <- CRS("+init=EPSG:3414")
+
+```
+
+```{r warning=FALSE}
+values(kde_home_raster) <- values(kde_home_raster)*1000000
+values(kde_private_raster) <- values(kde_private_raster)*1000000
+values(kde_shared_raster) <- values(kde_shared_raster)*1000000
+values(kde_hotel_raster) <- values(kde_hotel_raster)*1000000
+```
+
+### Viewing airbnb listing by room type in Singapore 
+
+```{r eval=FALSE, warning=FALSE}
+tmap_mode("view")
+a<-tm_shape(kde_home_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_view(set.zoom.limits = c(10,18)) 
+
+b<-tm_shape(kde_private_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+    tm_basemap(group = "OpenStreetMap")+
+    tm_view(set.zoom.limits = c(10,18)) 
+
+
+c<-tm_shape(kde_shared_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+    tm_basemap(group = "OpenStreetMap")+
+    tm_view(set.zoom.limits = c(10,18)) 
+
+
+d<-tm_shape(kde_hotel_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+    tm_basemap(group = "OpenStreetMap")+
+    tm_view(set.zoom.limits = c(10,18)) 
+
+
+tmap_arrange(a,b,c,d)
+tmap_mode("plot")
+
+```
+
+!(/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/m1.png)
+
+### Interpretation and Significance of Kernel Density Maps
+
+From the above map, it is evident that the central subzones have the most proportion of each of the room types as compared to the other regions of Singapore. Using Kernel density map over the point map has allowed to us to gain more insights. As there are cummulatively thousands of listings for each room type, the Kernel density map allows one point to describe multiple observations in the nearby proximity. When looking at Singapore as a whole, this technique allows us to understand the spread of the data properly. Furthermore, the point data does not allow to gain relative understanding of the distribution of the data as the map gets very cluttered when the number of points are in thousands. 
+
+# Section B: Analysis by planning subzones
+
+## Exploratory Data Analysis
+
+### Data preperation by extracting subzones
+
+```{r warning=FALSE}
+mpsz <- st_set_crs(mpsz,3414)
+mpsz2 <- st_transform(mpsz,3414)
+aljunied <- mpsz2 %>% filter(SUBZONE_N=="ALJUNIED")
+balestier <- mpsz2 %>% filter(SUBZONE_N=="BALESTIER")
+lavender <- mpsz2 %>% filter(SUBZONE_N=="LAVENDER")
+tanjongpagar <-  mpsz2 %>% filter(SUBZONE_N=="TANJONG PAGAR")
+```
+
+```{r warning=FALSE}
+## Area
+a1 <- st_area(aljunied)/1000000
+a2 <- st_area(balestier)/1000000
+a3 <- st_area(lavender)/1000000
+a4 <- st_area(tanjongpagar)/1000000
+
+```
+
+
+## Visualising Airbnb listing by room type within Aljunied
+```{r warning=FALSE}
+tmap_mode("plot")
+data <- st_intersection(airbnb3414,aljunied)
+data_aljunied <- st_jitter(data)
+
+tm_shape(aljunied)+
+  tm_borders()+
+  tm_shape(data_aljunied)+
+  tm_facets(by="room_type",free.coords = FALSE)+
+  tm_dots("room_type",size=0.4,alpha=0.7,title = "Room Type")+
+  tm_layout(main.title="Distribution of Airbnb listings by room type in Aljunied")
+```
+
+We will now examine the spatial patterns observed in each of the distributions. Entire home/apartment are concentrated in the middle of Aljunied, and has fewer options in the northern and southern region of Aljunied. Private rooms are located in nearly all the parts of Aljunied, however, has a fewer number of options in the northern region. The availibility of hotel rooms and shared rooms are much lower as compared to the previous two categories. Hotel rooms are found in the central region of Aljunied only whereas shared rooms are scattered over the central and eastern region of Aljunied.
+
+To gain statistical understanding of the distribution, K function is performed on every room type to determine if there is complete spatial randomness.
+
+### Data preperation for each room type
+```{r warning=FALSE}
+aljunied_home <- data_aljunied%>%filter(room_type=="Entire home/apt")
+a<- as(aljunied_home,"Spatial")
+b <- as(a,"SpatialPoints")
+aljunied_home_ppp <- as(b,"ppp")
+
+aljunied_proom <- data_aljunied%>%filter(room_type=="Private room")
+a<- as(aljunied_proom,"Spatial")
+b <- as(a,"SpatialPoints")
+aljunied_proom_ppp <- as(b,"ppp")
+
+aljunied_sroom <- data_aljunied%>%filter(room_type=="Shared room")
+a<- as(aljunied_sroom,"Spatial")
+b <- as(a,"SpatialPoints")
+aljunied_sroom_ppp <- as(b,"ppp")
+
+aljunied_hotel <- data_aljunied%>%filter(room_type=="Hotel room")
+a<- as(aljunied_hotel,"Spatial")
+b <- as(a,"SpatialPoints")
+aljunied_hotel_ppp <- as(b,"ppp")
+```
+
+## Second order spatial analysis in Aljunied through K function
+
+```{r warning=FALSE}
+k_aljunied_home = Kest(aljunied_home_ppp, correction = "Ripley")
+plot(k_aljunied_home, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Entire home/apt in Aljunied")
+
+```
+
+As seen in the above graph, as the K-function value is over its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test for Full home/apt in Aljunied
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Entire home/apt listings in Aljunied are randomly distributed.
+
+Alternate hypothesis: The distribution of Entire home/apt listings in Aljunied are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_aljunied_home.csr <- envelope(aljunied_home_ppp, Kest, nsim = 999, nrank = 1, glocal = TRUE)
+plot(k_aljunied_home.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Full home/apt in Aljunied")
+```
+As the observed k-value curve lies outside of the envelope, the null hypothesis is rejected and we can conclude that the distribution of Entire home/apt listings in Aljunied are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Entire home/apt" listings on Airbnb in Aljunied subzone exhibit clustering. As the curve is not extremely steep, there are no significant cluster locations in Aljunied, indicating that most of the properties are in close proximity to one another as seen in the map as well.
+
+### Distribution of Private Room in Aljunied
+```{r warning=FALSE}
+k_aljunied_proom = Kest(aljunied_proom_ppp, correction = "Ripley")
+plot(k_aljunied_proom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Private Room in Aljunied")
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test on Private Rooms in Aljunied
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Private room listings in Aljunied are randomly distributed.
+
+Alternate hypothesis: The distribution of Private room listings in Aljunied are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_aljunied_proom.csr <- envelope(aljunied_proom_ppp, Kest, nsim = 999, nrank = 1, glocal=TRUE)
+plot(k_aljunied_proom.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Private rooms in Aljunied")
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Private room listings in Aljunied are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Private Room" listings on Airbnb in Aljunied subzone significantly exhibit  clustering. As the curve is not extremely steep, there are no significant cluster locations in Aljunied, indicating that most of the properties are in close proximity to one another as seen in the map as well.
+
+### Distribution of Shared Room in Aljunied
+```{r warning=FALSE}
+k_aljunied_sroom = Kest(aljunied_sroom_ppp, correction = "Ripley")
+plot(k_aljunied_sroom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Shared Room in Aljunied")
+```
+
+As seen in the above graph, as the K-function value is over its expected value for most of the d(m) values except between m=80 to m=120, hence shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Shared room listings in Aljunied are randomly distributed.
+
+Alternate hypothesis: The distribution of Shared room listings in Aljunied are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_aljunied_sroom.csr <- envelope(aljunied_sroom_ppp, Kest, nsim = 999, nrank = 1, glocal=TRUE)
+plot(k_aljunied_sroom.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Shared rooms in Aljunied")
+```
+
+As the observed k-value curve lies in the envelope region, the null hypothesis is not rejected and we can conclude that the distribution of Shared room listings in Aljunied are  randomly distributed with 99.9% confidence. However, as the number of Shared rooms in Aljunied are only 10, the K function is extremely sensitive to each of the points.
+
+### Distribution of Hotel Room in Aljunied
+```{r warning=FALSE}
+k_aljunied_hotel = Kest(aljunied_hotel_ppp, correction = "Ripley")
+plot(k_aljunied_hotel, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Hotel Room in Aljunied")
+```
+
+As seen in the above graph, as the K-function value is over its expected value, it shows signs of clustering. As the k-function is increasing in "steps" from d=15, there are signs of equal distribution of hotel rooms in the Aljunied area. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Hotel room listings in Aljunied are randomly distributed.
+
+Alternate hypothesis: The distribution of Hotel room listings in Aljunied are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_aljunied_hotel.csr <- envelope(aljunied_hotel_ppp, Kest, nsim = 999, nrank = 1,glocal = TRUE)
+plot(k_aljunied_hotel.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Hotel rooms in Aljunied")
+
+```
+
+As the observed most part of the k-value curve lies in the envelope, the null hypothesis is not rejected and we can conclude that the distribution of Hotel room listings in Aljunied are  randomly distributed with 99.9% confidence. The k-function is outside the envelope for two short intervals between d=30 and d=601, exhibiting few significant signs of clustering.
+
+### Insights from CSR tests in Aljunied
+From the CSR tests conducted above, the room type "Full Apt/Home" and "Private Room" exhibit significant clustering whereas "Hotel room" and "Shared room" exhibit complete spatial randomness. However, a point to consider is that the number of shared rooms and hotel rooms are much lesser as compared to the number of full home/apt and private room listings which maybe one of the external factors contributing to the conclusions made as the K-function is very sensitive to the number of observations.
+
+To analyse these patterns further, kernel density maps are drawn for each Room type.
+
+
+### Kernel density maps by room type in Aljunied
+```{r warning=FALSE}
+a <- as(aljunied,"Spatial")
+aljunied_owin <- as(a,"owin")
+par(mfrow = c(2, 2))
+
+
+# Full home/apt
+aljunied_home_ppp <- aljunied_home_ppp[aljunied_owin]
+aljunied_home_ppp.km <- rescale(aljunied_home_ppp, 1000, "km")
+
+kde_aljunied_home <- density(aljunied_home_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_aljunied_home)
+kde_aljunied_home_unscalled <- density(aljunied_home_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+# Private room
+aljunied_proom_ppp <- aljunied_proom_ppp[aljunied_owin]
+aljunied_proom_ppp.km <- rescale(aljunied_proom_ppp, 1000, "km")
+
+kde_aljunied_proom <- density(aljunied_proom_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_aljunied_proom)
+kde_aljunied_proom_unscalled <- density(aljunied_proom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+# Shared room
+aljunied_sroom_ppp <- aljunied_sroom_ppp[aljunied_owin]
+aljunied_sroom_ppp.km <- rescale(aljunied_sroom_ppp, 1000, "km")
+
+kde_aljunied_sroom <- density(aljunied_sroom_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_aljunied_sroom)
+kde_aljunied_sroom_unscalled <- density(aljunied_sroom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+# Hotel room
+aljunied_hotel_ppp <- aljunied_hotel_ppp[aljunied_owin]
+aljunied_hotel_ppp.km <- rescale(aljunied_hotel_ppp, 1000, "km")
+
+kde_aljunied_hotel <- density(aljunied_hotel_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_aljunied_hotel)
+kde_aljunied_hotel_unscalled <- density(aljunied_hotel_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+```
+
+### Data conversion to raster and assigning it projection
+```{r warning=FALSE}
+kde_aljunied_home_raster <- raster(kde_aljunied_home_unscalled)
+projection(kde_aljunied_home_raster) <- CRS("+init=EPSG:3414")
+values(kde_aljunied_home_raster) <- values(kde_aljunied_home_raster)*100000
+
+kde_aljunied_proom_raster <- raster(kde_aljunied_proom_unscalled)
+projection(kde_aljunied_proom_raster) <- CRS("+init=EPSG:3414")
+values(kde_aljunied_proom_raster) <- values(kde_aljunied_proom_raster)*100000
+
+kde_aljunied_sroom_raster <- raster(kde_aljunied_sroom_unscalled)
+projection(kde_aljunied_sroom_raster) <- CRS("+init=EPSG:3414")
+values(kde_aljunied_sroom_raster) <- values(kde_aljunied_sroom_raster)*1000000
+
+kde_aljunied_hotel_raster <- raster(kde_aljunied_hotel_unscalled)
+projection(kde_aljunied_hotel_raster) <- CRS("+init=EPSG:3414")
+values(kde_aljunied_hotel_raster) <- values(kde_aljunied_hotel_raster)*100000
+```
+
+### Visualising the raster data on openstreemap
+
+The code below produces raster layer data on Openstreetmap. However, to do so, the interactive view was used. For publishing purposes on RPubs, screenshots of the maps are taken and attached after the code.
+
+```{r eval=FALSE, warning=FALSE}
+# Full house/apt
+tmap_mode("view")
+tm_shape(kde_aljunied_home_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(aljunied)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Full home/apt in Aljunied")
+
+# Private room
+tm_shape(kde_aljunied_proom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(aljunied)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Private room in Aljunied")
+
+# Shared room
+tm_shape(kde_aljunied_sroom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(aljunied)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Shared room in Aljunied")
+
+# Hotel room
+tm_shape(kde_aljunied_hotel_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings", palette = "YlOrBr")+
+  tm_shape(aljunied)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Hotel room in Aljunied")
+```
+
+### Screenshots of maps
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/aljunied-1-min.png) ![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/aljunied-2-min.png)
+
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/aljunied-3-min.png) ![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/aljunied-4-min.png)
+
+### Interpretation
+There are two significant groups of locations for Full apt/home listings which are in close proximity of Aljunied MRT. The northern region of Aljunied does not have many full apt/home listings because it mainly comprises of HDBs, where leasing out via Airbnb is illegal. There are various shared rooms present in close proximity of Aljunied MRT and Paya Lebar MRT as compared to rest of the region which is not so well connected with the MRT network. Most of the hotels present in the Aljunied subzone are on the same road (Geylang Road) as there are various small chain of hotels and lodges present in this area as compared to rest of the region, which is predominantly residential. 
+
+## Visualising Airbnb listing by room type within Balestier
+```{r warning=FALSE}
+data <- st_intersection(airbnb3414,balestier)
+data_balestier <- st_jitter(data)
+
+tmap_mode("plot")
+tm_shape(balestier)+
+  tm_borders()+
+  tm_shape(data)+
+  tm_facets(by="room_type",free.coords = FALSE)+
+  tm_dots("room_type",size=0.5,alpha=0.7,title = "Room Type")+
+  tm_layout(main.title="Distribution of Airbnb listings by room type in Balestier")
+```
+
+We will now examine the spatial patterns observed in each of the distributions. Entire home/apartment listings are present in all regions except the eastern part of Balestier. Private rooms and Hotel rooms are located in nearly all the parts of Balestier, however, has a fewer number of options in the eastern region. There is only one shared room in balestier, hence we won't be performing any spatial analysis on it.
+
+To gain statistical understanding of the distribution, K function is performed on every room type except shared room to determine if there is complete spatial randomness.
+
+### Data preperation for every room type
+```{r warning=FALSE}
+balestier_home <- data_balestier%>%filter(room_type=="Entire home/apt")
+a<- as(balestier_home,"Spatial")
+b <- as(a,"SpatialPoints")
+balestier_home_ppp <- as(b,"ppp")
+
+balestier_hotel <- data_balestier%>%filter(room_type=="Hotel room")
+a<- as(balestier_hotel,"Spatial")
+b <- as(a,"SpatialPoints")
+balestier_hotel_ppp <- as(b,"ppp")
+
+balestier_proom <- data_balestier%>%filter(room_type=="Private room")
+a<- as(balestier_proom,"Spatial")
+b <- as(a,"SpatialPoints")
+balestier_proom_ppp <- as(b,"ppp")
+
+```
+
+## Second order spatial analysis in Balestier through K function
+
+### Distribution of Full home/apt in Balestier through K function
+```{r warning=FALSE}
+k_balestier_home = Kest(aljunied_home_ppp, correction = "Ripley")
+plot(k_balestier_home, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Entire home/apt in Balestier")
+```
+
+As seen in the above graph, as the K-function value is over its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### Performing CSR test
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Entire home/apt listings in Balestier are randomly distributed.
+
+Alternate hypothesis: The distribution of Entire home/apt listings in Balestier are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_balestier_home.csr <- envelope(balestier_home_ppp, Kest, nsim = 999, nrank = 1,glocal=TRUE)
+plot(k_balestier_home.csr, . - r ~ r, xlab="d", ylab="K(d)-r", main="CSR test on full apt/home in Balestier")
+
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Entire home/apt listings in Balestier are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Entire home/apt" listings on Airbnb in Balestier subzone exhibit clustering. As the curve is not extremely steep, there are no significant cluster locations in Balestier, indicating that most of the properties are in close proximity to one another as seen in the map as well.
+
+### Distribution of Hotel room in Balestier
+```{r warning=FALSE}
+k_balestier_hotel = Kest(balestier_hotel_ppp, correction = "Ripley", glocal=TRUE)
+plot(k_balestier_hotel, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Hotel Room in Balestier")
+
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Hotel room listings in Balestier are randomly distributed.
+
+Alternate hypothesis: The distribution of Hotel room listings in Balestier are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_balestier_hotel.csr <- envelope(balestier_hotel_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_balestier_hotel.csr, . - r ~ r, xlab="d", ylab="K(d)-r", main="CSR test on Hotel room in Balestier")
+```
+
+The observed k-function curve lies in the envelope from d=0 to d=120(with a small portion inside the envelope in between), after which the curve lies out of the envelope. Therefore, we can reject the null hypothesis for d>120, and conclude that the distribution of Hotel room listings in Balestier are not randomly distributed for d>120 with 99.9% confidence.
+
+### Distribution of Private room in Balestier
+```{r warning=FALSE}
+k_balestier_proom = Kest(balestier_proom_ppp, correction = "Ripley", glocal=TRUE)
+plot(k_balestier_proom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Private room in balestier")
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Private room listings in Balestier are randomly distributed.
+
+Alternate hypothesis: The distribution of Private room listings in Balestier are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_balestier_proom.csr <- envelope(balestier_proom_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_balestier_proom.csr, . - r ~ r, xlab="d", ylab="K(d)-r", main="CSR test on Private room in Balestier")
+
+```
+
+As the observed k-value curve lies above the envelope for all values of d, the null hypothesis is rejected and we can conclude that the distribution of Private room listings in Balestier are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of Private rooms  on Airbnb in Balestier subzone significantly exhibit  clustering.
+
+To analyse these patterns further, kernel density maps are drawn for each Room type.
+
+### Data preperation
+```{r warning=FALSE}
+a <- as(balestier,"Spatial")
+balestier_owin <- as(a,"owin")
+
+balestier_home_ppp <- balestier_home_ppp[balestier_owin]
+balestier_home_ppp.km <- rescale(balestier_home_ppp, 1000, "km")
+
+balestier_hotel_ppp <- balestier_hotel_ppp[balestier_owin]
+balestier_hotel_ppp.km <- rescale(balestier_hotel_ppp, 1000, "km")
+
+balestier_proom_ppp <- balestier_proom_ppp[balestier_owin]
+balestier_proom_ppp.km <- rescale(balestier_proom_ppp, 1000, "km")
+```
+
+### Plotting Kernel density
+```{r warning=FALSE}
+par(mfrow = c(2, 2))
+
+kde_balestier_home <- density(balestier_home_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_balestier_home)
+kde_balestier_home_unscalled <- density(balestier_home_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+kde_balestier_hotel <- density.ppp(balestier_hotel_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_balestier_hotel)
+kde_balestier_hotel_unscalled <- density(balestier_hotel_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+kde_balestier_proom <- density(balestier_proom_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_balestier_proom)
+kde_balestier_proom_unscalled <- density(balestier_proom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+```
+
+As seen in all the Kernel density maps above, a clear pattern can be observed. All the three room types are concentrated in the central region of Balestier, with very few listings on the Eastern and Western parts of Balestier.
+
+To determine the cause of this divide, the kernel density map will be converted into a raster layer and then plotted into a base layer of OpenStreetMap to see the how various spatial elements in Balestier affect where the listings are present.
+
+### Data conversion to raster and assigning it projection
+```{r warning=FALSE}
+kde_balestier_home_raster <- raster(kde_balestier_home_unscalled)
+projection(kde_balestier_home_raster) <- CRS("+init=EPSG:3414")
+values(kde_balestier_home_raster) <- values(kde_balestier_home_raster)*100000
+
+kde_balestier_hotel_raster <- raster(kde_balestier_hotel_unscalled)
+projection(kde_balestier_hotel_raster) <- CRS("+init=EPSG:3414")
+values(kde_balestier_hotel_raster) <- values(kde_balestier_hotel_raster)*100000
+
+kde_balestier_proom_raster <- raster(kde_balestier_proom_unscalled)
+projection(kde_balestier_proom_raster) <- CRS("+init=EPSG:3414")
+values(kde_balestier_proom_raster) <- values(kde_balestier_proom_raster)*100000
+```
+
+### Visualising the raster data on openstreemap
+
+The code below produces raster layer data on Openstreetmap. However, to do so, the interactive view was used. For publishing purposes on RPubs, screenshots of the maps are taken and attached after the code.
+
+```{r eval=FALSE, warning=FALSE}
+tmap_mode("view")
+tm_shape(kde_balestier_home_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(balestier)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Full home/apt in Balestier")
+
+tm_shape(kde_balestier_hotel_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(balestier)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Hotel room in Balestier")
+
+tm_shape(kde_balestier_proom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(balestier)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Private room in Balestier")
+tmap_mode("plot")
+
+```
+
+### Screenshots of maps
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/balestier-1-min.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/balestier-2-min.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/balestier-3-min.png)
+
+### Interpretation
+There are two significant groups of locations for Full apt/home listings which are both located on Balestier Road. This is due to the fact that this subzone falls very close to the city, and hence consists of various other essential services such as hospitals, offices and shopping centres. The shared rooms are present in the eastern region of the zone as many residential facilities are present here. The hotel rooms are present in the same area as the full hom/apartment and shared rooms, as the other regions mainly consist of hospitals, offices and plazas.  
+
+## Visualising Airbnb listing by room type within Lavender
+```{r warning=FALSE}
+tmap_mode("plot")
+data <- st_intersection(airbnb3414,lavender)
+data_lavender <- st_jitter(data)
+
+tm_shape(lavender)+
+  tm_borders()+
+  tm_shape(data_lavender)+
+  tm_facets(by="room_type",free.coords = FALSE)+
+  tm_dots("room_type",size=0.5,alpha=0.7, title = "Room type")+
+  tm_layout(main.title="Distribution of Airbnb listings by room type in Lavender")
+```
+
+We will now examine the spatial patterns observed in each of the distributions. Entire home/apartment are concentrated in the northern region of Lavender, and has fewer options in the southern region of Lavender. Private rooms are located in nearly all the parts of Lavender. The availibility of hotel rooms and shared rooms are much lower as compared to the previous two categories. Both are found in the central region and northern region of Lavender.
+
+To gain statistical understanding of the distribution, K function is performed on every room type to determine if there is complete spatial randomness.
+
+### Data preperation for each room type
+```{r warning=FALSE}
+lavender_home <- data_lavender%>%filter(room_type=="Entire home/apt")
+a<- as(lavender_home,"Spatial")
+b <- as(a,"SpatialPoints")
+lavender_home_ppp <- as(b,"ppp")
+
+lavender_proom <- data_lavender%>%filter(room_type=="Private room")
+a<- as(lavender_proom,"Spatial")
+b <- as(a,"SpatialPoints")
+lavender_proom_ppp <- as(b,"ppp")
+
+lavender_sroom <- data_lavender%>%filter(room_type=="Shared room")
+a<- as(lavender_sroom,"Spatial")
+b <- as(a,"SpatialPoints")
+lavender_sroom_ppp <- as(b,"ppp")
+
+lavender_hotel <- data_lavender%>%filter(room_type=="Hotel room")
+a<- as(lavender_hotel,"Spatial")
+b <- as(a,"SpatialPoints")
+lavender_hotel_ppp <- as(b,"ppp")
+
+```
+
+## Second order spatial analysis in Lavender through K function
+
+## Distribution of Entire home/apt in Lavender
+```{r warning=FALSE}
+k_lavender_home = Kest(lavender_home_ppp, correction = "Ripley")
+plot(k_lavender_home, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Entire home/apt in lavender")
+
+```
+
+As seen in the above graph, as the K-function value is over its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Entire home/apt listings in Lavender are randomly distributed.
+
+Alternate hypothesis: The distribution of Entire home/apt listings in Lavender are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_lavender_home.csr <- envelope(lavender_home_ppp, Kest, nsim = 999, nrank = 1,glocal=TRUE)
+plot(k_lavender_home.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Full home/apt in Lavender")
+
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Entire home/apt listings in Lavender are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Entire home/apt" listings on Airbnb in Lavender subzone exhibit clustering. As the curve is not extremely steep, there are no significant cluster locations in Lavender, indicating that most of the properties are in close proximity to one another as seen in the map as well.
+
+### Distribution of Private rooms in Lavender
+```{r warning=FALSE}
+k_lavender_proom = Kest(lavender_proom_ppp, correction = "Ripley")
+plot(k_lavender_proom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Private room in lavender")
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test on Private Rooms in Lavender
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Private room listings in Lavender are randomly distributed.
+
+Alternate hypothesis: The distribution of Private room listings in Lavender are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_lavender_proom.csr <- envelope(lavender_proom_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_lavender_proom.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Private rooms in Lavender")
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Private room listings in Lavender are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of Private rooms on Airbnb in Lavender subzone significantly exhibit clustering.
+
+### Distribution of Shared room in Aljunied
+```{r warning=FALSE}
+k_lavender_sroom = Kest(lavender_sroom_ppp, correction = "Ripley")
+plot(k_lavender_sroom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Shared Room in lavender")
+```
+
+As seen in the above graph, as the K-function value is over its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR Test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Shared room listings in Lavender are randomly distributed.
+
+Alternate hypothesis: The distribution of Shared room listings in Lavender are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_lavender_sroom.csr <- envelope(lavender_sroom_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_lavender_sroom.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Shared rooms in Lavender")
+
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Shared room listings in Lavender are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Shared rooms on Airbnb in Lavender subzone significantly exhibit clustering.
+
+### Distribution of Hotel room in lavender
+```{r warning=FALSE}
+k_lavender_hotel = Kest(lavender_hotel_ppp, correction = "Ripley")
+plot(k_lavender_hotel, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Hotel Room in lavender")
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Hotel room listings in Lavender are randomly distributed.
+
+Alternate hypothesis: The distribution of Hotel room listings in Lavender are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_lavender_hotel.csr <- envelope(lavender_hotel_ppp, Kest, nsim = 999, nrank = 1, glocal=TRUE)
+plot(k_lavender_hotel.csr, . - r ~ r, xlab="d", ylab="K(d)-r",  main="CSR test on Hotel rooms in Lavender")
+
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Hotel room listings in Lavender are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of Hotel rooms on Airbnb in Lavender subzone significantly exhibit  clustering.
+
+### Insights from CSR tests in Lavender
+From the CSR tests conducted above, all the room types exhibit significant clustering. However, a point to consider is that the number of shared rooms and hotel rooms are much lesser as compared to the number of full home/apt and private room listings which maybe one of the external factors contributing to the conclusions made as the K-function is very sensitive to the number of observations.
+
+To analyse these patterns further, kernel density maps are drawn for each Room type.
+
+### Kernel density map by room type in Lavender
+```{r warning=FALSE}
+par(mfrow=c(2,2))
+a <- as(lavender,"Spatial")
+lavender_owin <- as(a,"owin")
+
+lavender_home_ppp <- lavender_home_ppp[lavender_owin]
+lavender_home_ppp.km <- rescale(lavender_home_ppp, 1000, "km")
+kde_lavender_home <- density(lavender_home_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+kde_lavender_home_unscalled <- density(lavender_home_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+plot(kde_lavender_home)
+
+
+lavender_proom_ppp <- lavender_proom_ppp[lavender_owin]
+lavender_proom_ppp.km <- rescale(lavender_proom_ppp, 1000, "km")
+kde_lavender_proom <- density(lavender_proom_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_lavender_proom)
+kde_lavender_proom_unscalled <- density(lavender_proom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+lavender_sroom_ppp <- lavender_sroom_ppp[lavender_owin]
+lavender_sroom_ppp.km <- rescale(lavender_sroom_ppp, 500, "km")
+kde_lavender_sroom <- density(lavender_sroom_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_lavender_sroom)
+kde_lavender_sroom_unscalled <- density(lavender_sroom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+lavender_hotel_ppp <- lavender_hotel_ppp[lavender_owin]
+lavender_hotel_ppp.km <- rescale(lavender_hotel_ppp, 500, "km")
+kde_lavender_hotel <- density(lavender_hotel_ppp.km, sigma=0.25, edge=TRUE, kernel="gaussian")
+plot(kde_lavender_hotel)
+kde_lavender_hotel_unscalled <- density(lavender_hotel_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+```
+
+As seen in all the Kernel density maps above, a clear pattern can be observed. Full apartments/home and shared rooms are concentrated in the northern region of the subzone, wheras private and hotel rooms are concentrated in the eastern region of the subzone.
+
+To determine the cause of this relationship, the kernel density map will be converted into a raster layer and then plotted into a base layer of OpenStreetMap to see the how various spatial elements in Lavender affect where the listings are present.
+
+### Data conversion to raster and assigning it projection
+
+```{r warning=FALSE}
+kde_lavender_home_raster <- raster(kde_lavender_home_unscalled)
+projection(kde_lavender_home_raster) <- CRS("+init=EPSG:3414")
+values(kde_lavender_home_raster) <- values(kde_lavender_home_raster)*100000
+
+kde_lavender_proom_raster <- raster(kde_lavender_proom_unscalled)
+projection(kde_lavender_proom_raster) <- CRS("+init=EPSG:3414")
+values(kde_lavender_proom_raster) <- values(kde_lavender_proom_raster)*100000
+
+kde_lavender_sroom_raster <- raster(kde_lavender_sroom_unscalled)
+projection(kde_lavender_sroom_raster) <- CRS("+init=EPSG:3414")
+values(kde_lavender_sroom_raster) <- values(kde_lavender_sroom_raster)*100000
+
+kde_lavender_hotel_raster <- raster(kde_lavender_hotel_unscalled)
+projection(kde_lavender_hotel_raster) <- CRS("+init=EPSG:3414")
+values(kde_lavender_hotel_raster) <- values(kde_lavender_hotel_raster)*100000
+```
+
+### Visualising the raster data on openstreemap
+The code below produces raster layer data on Openstreetmap. However, to do so, the interactive view was used. For publishing purposes on RPubs, screenshots of the maps are taken and attached after the code.
+
+```{r eval=FALSE}
+tmap_mode("view")
+tm_shape(kde_lavender_home_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(lavender)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Full home/apt in lavender")
+
+tm_shape(kde_lavender_proom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(lavender)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Private room in lavender")
+
+tm_shape(kde_lavender_sroom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(lavender)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Shared room in lavender")
+
+tm_shape(kde_lavender_hotel_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(lavender)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Hotel room in lavender")
+tmap_mode("plot")
+```
+
+### Screenshots of maps
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/l1.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/l2.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/l3.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/l4.png)
+
+### Interpretation
+Most of the Full apt/home listings are located in the northern region of Lavender in close proximity of Farrer Park MRT. This localilty has more Full apt/home listings as compared to the other parts of Lavender as most of the private condominiums are located here, with the added proximity of shopping centres which makes this a popular location for an Airbnb listing. This location is also where most of the hotels in the region are located due to its convinience. Furthermore, this location is also where most of the private rooms are located. Private rooms are also located in the centre of Lavender, by Jalan Besar Road near the Jalan Besar MRT station. It is very evident that most of the listings are located in close proximity of public transportation facilities as compared to locations which are distant from public transport facilities. Most of the airbnb listings are located in the northern part of Lavender, due to its convinience and also located near the infamous Little India. 
+
+## Visualising Airbnb listing by room type in Tanjong Pagar
+```{r warning=FALSE}
+data <- st_intersection(airbnb3414,tanjongpagar)
+data_tp <- st_jitter(data)
+tmap_mode("plot")
+tm_shape(tanjongpagar)+
+  tm_borders()+
+  tm_shape(data_tp)+
+  tm_facets(by="room_type",free.coords = FALSE)+
+  tm_dots("room_type",size=0.5,alpha=0.7,title = "Room type")+
+  tm_layout(main.title="Distribution of Airbnb listings by room type in Tanjong Pagar")
+```
+
+We will now examine the spatial patterns observed in each of the distributions. Firstly, there are no Shared rooms in Tanjong Pagar, hence there is no plot drawn for that. Entire home/apartment listings are present in all regions but concentrated towards the south-western region of Tanjong Pagar.Private r are located in nearly all the parts of Tanjong Pagar. There are only two hotel room listings in Tanjong Pagar, hence we won’t be performing any spatial analysis on it.
+
+To gain statistical understanding of the distribution, K function is performed on every room type except shared room and hotel room to determine if there is complete spatial randomness.
+### Data preperation for every room type
+```{r warning=FALSE}
+tp_home <- data_tp%>%filter(room_type=="Entire home/apt")
+a<- as(tp_home,"Spatial")
+b <- as(a,"SpatialPoints")
+tp_home_ppp <- as(b,"ppp")
+
+tp_proom <- data_tp%>%filter(room_type=="Private room")
+a<- as(tp_proom,"Spatial")
+b <- as(a,"SpatialPoints")
+tp_proom_ppp <- as(b,"ppp")
+```
+## Second order spatial analysis in Tanjong Pagar through K function
+
+### Distribution of Entire home/apt in Tanjong Pagar
+```{r warning=FALSE}
+k_tp_home = Kest(tp_home_ppp, correction = "Ripley")
+plot(k_tp_home, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Entire home/apt in lavender")
+
+```
+
+As seen in the above graph, as the K-function value is above its expected value, it shows signs of clustering. However, to ensure that the clustering is statistically significant, we will perform a complete spatial randomness test.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Entire home/apt listings in Tanjong Pagar are randomly distributed.
+
+Alternate hypothesis: The distribution of Entire home/apt listings in Tanjong Pagar are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_tp_home.csr <- envelope(tp_home_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_tp_home.csr, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Entire home/apt in Tanjong Pagar")
+
+```
+
+As the observed k-value curve lies above the envelope, the null hypothesis is rejected and we can conclude that the distribution of Entire home/apt listings in Tanjong Pagar are not randomly distributed with 99.9% confidence. Furthermore, as the observed K function curve is above the envelope, the distribution of "Entire home/apt" listings on Airbnb in Tanjong Pagar subzone exhibit clustering.
+
+### Distribution of Private room in lavender
+```{r warning=FALSE}
+k_tp_proom = Kest(tp_proom_ppp, correction = "Ripley")
+plot(k_tp_proom, .-r ~ r, ylab= "K(d)-r", xlab = "d(m)", main="K-function plot of Private rooms in Tanjong Pagar")
+```
+
+As seen in the above graph, as the K-function value is over its theoretical value for some distances and below its theoritical distance, we will perform a complete spatial randomness test to examine if there are signs of uniformity or clustered data.
+
+### CSR test
+
+The test hypothesis is as follows:
+
+Null hypothesis: The distribution of Private room listings in Tanjong Pagar are randomly distributed.
+
+Alternate hypothesis: The distribution of Private room listings in Tanjong Pagar are not randomly distributed.
+
+The null hypothesis will be rejected if p-value is smaller than alpha value of 0.001.
+```{r warning=FALSE}
+k_tp_proom.csr <- envelope(tp_proom_ppp, Kest, nsim = 999, nrank = 1)
+plot(k_tp_proom.csr,main="K-function plot of Private room in Tanjong Pagar")
+```
+
+As the observed k-value curve lies above within the envelope, the null hypothesis is not rejected and we can conclude that the distribution of Private room listings in Tanjong Pagar are  randomly distributed with 99.9% confidence. Therefore, the distribution of private rooms in tanjong pagar conform to spatial randomness.
+
+### Insights from CSR tests in Tanjong Pagar
+
+Entire home/apartment are clustered in Tanjong Pagar whereas Private rooms conform to spatial randomness. However, a point to consider is that there are 149 listings for Full apartment/home whereas there are only 21 listings for Private rooms. As Tanjong Pagar is located in the heart of the CBD (Central Business District), the amount of residential area is much less as compared to he amount of area for business purposes. Therefore, given the limited area, clusters are bound to form.
+
+To analyse these patterns further, kernel density maps are drawn for each Room type.
+
+
+### Kernel density maps by room type in Tanjong Pagar
+
+```{r warning=FALSE}
+a <- as(tanjongpagar,"Spatial")
+tp_owin <- as(a,"owin")
+par(mfrow=c(2,2))
+
+tp_home_ppp <- tp_home_ppp[tp_owin]
+tp_home_ppp.km <- rescale(tp_home_ppp, 125, "km")
+kde_tp_home <- density(tp_home_ppp.km, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+plot(kde_tp_home, main="Kernel density map of Full apartment/home in Tanjong Pagar")
+kde_tp_home_unscalled <- density(tp_home_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+
+
+tp_proom_ppp <- tp_proom_ppp[tp_owin]
+tp_proom_ppp.km <- rescale(tp_proom_ppp, 250, "km")
+kde_tp_proom <- density(tp_proom_ppp.km, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+plot(kde_tp_proom, main="Kernel density map of Private Room in Tanjong Pagar")
+kde_tp_proom_unscalled <- density(tp_proom_ppp, sigma=bw.scott, edge=TRUE, kernel="gaussian")
+```
+
+### Data conversion to raster and assigning it projection
+```{r warning=FALSE}
+par(mfrow = c(2, 1))
+kde_tp_home_raster <- raster(kde_tp_home_unscalled)
+projection(kde_tp_home_raster) <- CRS("+init=EPSG:3414")
+values(kde_tp_home_raster) <- values(kde_tp_home_raster)*10000
+
+kde_tp_proom_raster <- raster(kde_tp_proom_unscalled)
+projection(kde_tp_proom_raster) <- CRS("+init=EPSG:3414")
+values(kde_tp_proom_raster) <- values(kde_tp_proom_raster)*100000
+```
+### Visualising the raster data on openstreemap
+The code below produces raster layer data on Openstreetmap. However, to do so, the interactive view was used. For publishing purposes on RPubs, screenshots of the maps are taken and attached after the code.
+
+```{r warning=FALSE, eval=FALSE}
+tmap_mode("view")
+tm_shape(kde_tp_home_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(tanjongpagar)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Full home/apt in tp")
+
+tm_shape(kde_tp_proom_raster)+
+  tm_raster(colorNA = "lightgrey", showNA = FALSE,alpha=0.5,title = "Number of listings")+
+  tm_shape(tanjongpagar)+
+  tm_borders(lwd = 2)+
+  tm_basemap(group = "OpenStreetMap")+
+  tm_layout("Distribution of Private room in Tanjong Pagar")
+```
+
+### Screenshots of map
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/tp1.png)
+![](/Users/Amey/Desktop/Y2S2/IS415/assign2/data/aspatial/maps/tp2.png)
+
+### Interpretation
+Tanjong Pagar is a very small subzone with an area of only 0.15 km^2. It lies in the heart of the central business district and hence most buildings are for commercial or entertainment purposes. Therefore without much option of choice available, both entire home/apt and private rooms are located in the soutern part of Tanjong Pagar. Close proximity to the CBD makes it an ideal location for people who want to live close to where they work, in the heart of the city.  From the map above we can see that the western part of this region contains only a handful of buildings, most of which are skyscarappers used for commercial purposes such as the AXA towers, MAS Building, etc. The northern part of Tanjong Pagar does contain residential towers, however, does not contain many Airbnb listings, possibly because of regulations.
+
+# Fun with data
+```{r}
+
+```

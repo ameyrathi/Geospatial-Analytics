@@ -1,0 +1,848 @@
+---
+title: "assignment4"
+author: "Amey Rathi"
+date: "5/27/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.retina = 3, warning = FALSE, message = FALSE)
+```
+
+# Objective of this report 
+
+Brazil is one of the largest countries which is growing rapidly. However, the wealth is unequally distributed across Brazil. To put it in a simple perspective, half of the municipalities with GDP per capita less than R\$16000 and the top 25% municipalities earn R$26155 and above. This report will determine the factors affecting unequal development across Brazil at a muncipality level through a geographically weighed regression model.  
+
+# 1. Importing libraries
+```{r}
+packages = c('olsrr', 'corrplot', 'ggpubr', 'sf', 'spdep', 'GWmodel', 'tmap', 'tidyverse','geobr',"lmtest","ggpubr")
+for (p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+  }
+  library(p,character.only = T)
+}
+```
+
+
+# 2. Importing the data
+
+## 2.1 Aspatial data
+
+There are two datasets which are imported for this report. 
+
+say some more bull shit.
+
+```{r}
+#brazil_cities <- read.csv2("data/aspatial/BRAZIL_CITIES.csv")
+brazil_cities <- read_delim(file = "data/aspatial/BRAZIL_CITIES.csv", delim = ";")
+metadata <- read.csv2("data/aspatial/Data_Dictionary.csv")
+```
+
+## 2.2 Geospatial Data 
+
+In order to acquire the municipality map of Brazil, the read_municipality function is used from the "geobr" package. This package is built by the Brazil government, and provides quick and easy access to official spatial data sets of Brazil. As most of the aspatial data is collected in 2016, we will also be using the municipality map from the year 2016 in order to be consistent with the aspatial data.
+
+```{r}
+#municipality <- read_municipality(year=2016)
+#municipality <- brazil_sp
+```
+
+# 3. Data Wrangling
+
+## 3.1 Spatial Data 
+
+Firstly, we will check if any Coordinate Reference System is ai tssigned to the municipality data.
+```{r}
+#st_crs(municipality)
+```
+
+As seen in the output above, the CRS assigned is 4674 From epsg.io, the CRS with EPSG code 29101 is one of the most accurate projection system for Brazil. Hence we will convert our municipality data into EPSG 29101 format.
+```{r}
+#municipality <- st_transform(municipality,4674)
+municipality <- st_read(dsn = "data/muni_sf", layer = "muni_sf")
+```
+
+We can examine the spatial data from the code below.
+```{r eval=FALSE}
+tm_shape(municipality29101)+
+  tm_borders()
+```
+
+In the next section, we will perform data wrangling on aspatial data. 
+
+## 3.2 Aspatial data
+
+We will first have a look at the main dataset brazil_cities through the summary function.
+```{r}
+summary(brazil_cities)
+```
+The first column "CITY" refers to the municipality. As seen in the above summary, there are 79 variables in relation to each municipality. There are several pressing issues regarding this dataset which needs to be fixed before analysis is performed. Firstly, it is very evident that all the variable names are not self explainatory from their variable names, and hence we will be renaming them so that they can be identified easily while performing analysis. The description of the data can be found in the second file imported(Data_dictionary.csv) which briefly describes what each variable refers to along with the source and year of data. Secondly, there are several variables which consists of NA values, which need to be dealt with. As we will be creating an explanatory model to explain factors affecting the GDP per capita at the municipality level, we will be removing variables which are not related to GDP per capita. After that, we will further perform data cleaning in order to deal with NA values. 
+
+Before we perform spatial analysis, we will convert the dataframe object into a sf object from the 
+
+```{r}
+brazil_cities <- brazil_cities %>% drop_na(LONG) 
+```
+
+```{r}
+brazil.sf <- st_as_sf(brazil_cities,
+                            coords = c("LONG", "LAT"),
+                      crs=4326)%>%
+  st_transform(4674)
+st_crs(brazil.sf)
+head(brazil.sf)
+```
+```{r}
+plot(brazil.sf$geometry)
+```
+
+
+```{r}
+data <- st_join(municipality,brazil.sf)
+```
+## Choropleth map of GDP Per Capita in Brazil
+
+```{r eval=FALSE}
+tmap_mode("plot")
+tm_shape(data)+
+  tm_polygons("GDP_CAPITA",border.alpha = 0.7,legend.hist=TRUE)+
+  tm_layout(legend.outside = TRUE)
+```
+
+<some explaination>
+## 3.3 Data wrangling
+
+Firstly, we will remove the columns with a lot of NA values as these data will not be a good fit for our model. We will re-examine the data from the summary function through which we understand the range of the data as well as the number of NA values in each column. 
+```{r}
+summary(data)
+```
+
+As seen above, there are various variables which have majority of its values as NA. We will be removing these variables from our dataset from the code below.
+
+```{r}
+data$HOTELS<-NULL
+data$`WAL-MART`<-NULL
+data$MAC<-NULL
+data$UBER<-NULL
+data$Pu_Assets<-NULL
+data$Pr_Assets<-NULL
+data$Pu_Bank<-NULL
+data$Pr_Bank<-NULL
+data$Pu_Agencies<-NULL
+data$BEDS <- NULL
+data$Pr_Agencies <- NULL
+```
+
+Our dependent variable for the analysis will be GDP per capita. Hence, we should keep variables which are potential factors of the GDP per capita in order to treat them as independent variables. Hence, we will now be eliminating variables which are not related to GDP per capita. Furthermore, there are various columns which are derived from other columns. For example, GDP per capita is found by diving GDP by the population. This makes GDP and population data directly correlated with our dependent variable. If one column is directly related to other columns, there will be a problem of multicollinearity. 
+To avoid this problem, we will be eliminating such data. <br>
+
+  (1) IBGE_RES_POP (Total Resident Population) = IBGE_RES_POP_BRAS (Resident population who are Brazilian) + IBGE_RES_POP_ESTR (Resident population who are Foreigners). All of the municipalities have a huge majority of Brazilians. Hence, we are interested in finding out whether the proportion of foreigners affect the GDP_CAPITA in Brazil. Therefore, we will be eliminating IBGE_POP (Total Resident Population) and IBGE_RES_POP_BRAS (Resident population who are Brazilian), and we will be converting IBGE_RES_POP_ESTR (Resident population who are Foreigners) into a perecentage. <br>
+```{r}
+data <- data %>%
+  mutate(FOREIGNERS_PERCENTAGE=(IBGE_RES_POP_ESTR/IBGE_RES_POP)*100)
+
+data$IBGE_RES_POP_ESTR <- NULL
+data$IBGE_RES_POP <- NULL
+data$IBGE_RES_POP_BRAS <- NULL
+
+```
+  (2) IBGE_DU (Total Domestic Units) = IBGE_DU_URBAN (Urban Domestic Units) + IBGE_DU_RURAL(Rural Domestic Units). As this is a count data, which varies by municipality population, area and other factors, we will change this data into percentage data. Between urban units and rural units, we are interested in whether having more urban domestic units impact the GDP_CAPITA. Hence, we will create a new variable DU_URBAN_PERCENTAGE which will correspond to the percentage of urban household units calculated by (IBGE_DU_URBAN/IBGE_DU)*100. 
+  
+```{r}
+data <- data %>%
+  mutate(DU_URBAN_PERCENTAGE = (IBGE_DU_URBAN/IBGE_DU)*100)
+
+
+data$IBGE_DU_RURAL <- NULL
+data$IBGE_DU_URBAN <- NULL
+data$IBGE_DU <- NULL
+data$DU_RURAL_PERCENTAGE<-NULL
+```
+  (3) IBGE_POP (Resident Population Regular Urban Planning) = IBGE_1 + 	IBGE_1-4 + 	IBGE_5-9 + 	IBGE_10-14 + IBGE_15-59 + `IBGE_60+`. The resident population has been divided into multiple age groups. It is very obvious that all the age groups do not contribute to the GDP/Capita. Only the working population contributes to the GDP per capita. Hence, we will be only considering keeping the IBGE_15-59 which consists of number of people aged between 15 and 59. One limitation is that the active population is usually above the age of 22 in Brazil, however given the dataset, we will use IBGE_15-59 due to the lack of option. As the GDP per capita is sensitive to the number of people, we will use percentage of active population instead of using the direct count. Do note that this population is only consists of the urban population. 
+
+```{r}
+data <- data %>%
+  mutate(ACTIVE_PERCENTAGE=(`IBGE_15-59`/IBGE_POP)*100)
+data$IBGE_1 <- NULL
+data$`IBGE_1-4`<-NULL
+data$`IBGE_5-9` <- NULL
+data$`IBGE_10-14` <- NULL
+data$`IBGE_60+` <- NULL
+```
+
+(4) The next two variables (IBGE_PLANTED_AREA, CROP_PRODUCTION) are regarding the agricultural output in the municipality. We will be eliminating CROP_PRODUCTION, which refers to the monetary agricultural output as we have variables (descrbed later) which consist of monetary output from agriculture related companies. We will be transforming the IBGE_PLANTED_AREA such that it potrays the amount of land used for agricultural purposes. This will be done by PLANTED_AREA_PERCENTAGE = (IBGE_PLANTED_AREA/AREA)*100. The variable AREA refers to the total area of the municipality. 
+```{r}
+data$IBGE_PLANTED_AREA <- data$IBGE_PLANTED_AREA * 10000
+data$AREA <- data$AREA * 1000000
+data <- data %>%
+  mutate(PLANTED_AREA_PERCENTAGE=(IBGE_PLANTED_AREA/AREA)*100)
+
+data$IBGE_PLANTED_AREA <- NULL
+```
+
+(5) There are 5 variables linked to the human development index. They are IDHM Ranking (HDI Ranking), IDHM (HDI Index), IDHM_Renda (GNI index), IDHM_Longevidade (Life Expectancy index), and IDHM_Educacao (Education index).The variable IDHM is a mixure of IDHM_Renda, IDHM_Longevidade, and IDHM_Educacao. Therefore, we will eliminate the three subfactors of IDHM as correlation exists between the three variables. We will be eliminating IDHM Ranking as well as it will be highly correlated to IDHM which will create a problem of multicorrelation.
+
+```{r}
+data$`IDHM Ranking 2010`<-NULL
+data$IDHM_Longevidade <- NULL
+data$IDHM_Educacao <- NULL
+data$IDHM_Renda <- NULL
+```
+
+(6) The variables Pay TV and Fixed phone refer to pay tv users and fixed phone users respectively. These are not relevant while factoring in GDP per capita, hence we will be removing it. REGIAO_TUR and CATEGORIA_TUR are two categorical variables which we will be eliminating as it does not contribute to our regression model. 
+```{r}
+data$PAY_TV <- NULL
+data$FIXED_PHONES <- NULL
+
+data$REGIAO_TUR <- NULL
+data$CATEGORIA_TUR <- NULL
+```
+
+(7) The variable RURAL_URBAN contains of various categories which correspond to the extent of urban/rural the municipalities are. The categories can be found from the code below.
+
+```{r}
+unique(data$RURAL_URBAN)
+```
+(8) As seen above, there are 5 categories. We will be recoding the data into four columns which determines if the municipality belongs to that category. Note that 0 refers to FALSE and 1 refers to TRUE. There are only 4 columns as the 5th category can be recognised if all the other categories contain 0. This will reduce the chance of multicollinearity. 
+```{r}
+data$Intermediário_Adjacente<-ifelse(data$RURAL_URBAN == "Intermediário Adjacente", 
+c(1), c(0)) 
+
+data$Intermediário_Remoto<-ifelse(data$RURAL_URBAN == "Intermediário Remoto", 
+c(1), c(0)) 
+
+data$Rural_Adjacente<-ifelse(data$RURAL_URBAN == "Rural Adjacente", 
+c(1), c(0)) 
+
+data$Rural_Remoto<-ifelse(data$RURAL_URBAN == "Rural Remoto", 
+c(1), c(0)) 
+
+data$RURAL_URBAN <- NULL
+```
+
+(9) The next set of variables contain information regarding the GVA (Gross Value Added) which is distributed industrywise. We will transform the data into percentage form which will indicate how much percentage each industry contributes.
+
+```{r}
+data <- data%>%
+  mutate(GVA_AGROPEC_Percentage=(GVA_AGROPEC/` GVA_TOTAL `)*100) %>%
+  mutate(GVA_INDUSTRY_Percentage=(GVA_INDUSTRY/` GVA_TOTAL `)*100) %>%
+  mutate(GVA_SERVICES_Percentage=(GVA_SERVICES/` GVA_TOTAL `)*100) %>%
+  mutate(GVA_PUBLIC_Percentage=(GVA_PUBLIC/` GVA_TOTAL `)*100)
+
+data$GVA_AGROPEC <- NULL
+data$GVA_INDUSTRY <- NULL
+data$GVA_SERVICES <- NULL
+data$GVA_PUBLIC <- NULL
+data$` GVA_TOTAL ` <- NULL
+
+```
+
+(10) The variable TAXES is dated from 2016. The tax can be either negative or positive as seen in the data. Negative taxes indicate subsidies for unemployed individuals. We will transform this variable to Tax per capita. As the tax data is from 2016, we will divide it by the 2016 population data. Furthermore, the variable MUN_EXPENDIT consists of the municipal expenditures. This variable has a lot of NA values and is also not  significantly related to GDP_CAPITA, hence we will eliminate it as well.
+
+
+```{r}
+data <- data %>%
+  mutate(TAX_CAPITA=TAXES/POP_GDP)
+
+data$TAXES <- NULL
+data$MUN_EXPENDIT <- NULL
+```
+
+(11) The next set of data consists of various company types. Like GVA, we will classify the companies into four sub categories -- Agriculture, Industry, Services, Public Services. The percentage of companies for each category will then be calculated.
+
+```{r}
+data <- data %>%
+  mutate(COMP_AGRICULTURE=(COMP_A/COMP_TOT)*100)%>%
+  mutate(COMP_INDUSTRY=((COMP_A+COMP_B+COMP_F+COMP_G)/COMP_TOT)*100)%>%
+  mutate(COMP_SERVICES=((COMP_I+COMP_J+COMP_K+COMP_L+COMP_M+COMP_N+COMP_T+COMP_U)/COMP_TOT)*100)%>%
+  mutate(COMP_PUBLIC=((COMP_D+COMP_E+COMP_H+COMP_O+COMP_P+COMP_Q+COMP_R+COMP_S)/COMP_TOT)*100)
+
+data$COMP_A <- NULL
+data$COMP_B <- NULL
+data$COMP_C <- NULL
+data$COMP_D <- NULL
+data$COMP_E <- NULL
+data$COMP_F <- NULL
+data$COMP_G <- NULL
+data$COMP_H <- NULL
+data$COMP_I <- NULL
+data$COMP_J <- NULL
+data$COMP_K <- NULL
+data$COMP_L <- NULL
+data$COMP_M <- NULL
+data$COMP_N <- NULL
+data$COMP_O <- NULL
+data$COMP_P <- NULL
+data$COMP_Q <- NULL
+data$COMP_R <- NULL
+data$COMP_S <- NULL
+data$COMP_T <- NULL
+data$COMP_U <- NULL
+data$COMP_TOT <- NULL
+```
+
+(12) Both car and motorcycles represent the number of cars and two wheelers respectively. We will transform this data by dividing by the population. As the automobil data is dated from 2019, we will divide it by the 2016 population as that is the latest population data we currently have.
+```{r}
+data <- data %>%
+  mutate(CAR_RATIO=Cars/POP_GDP) %>%
+  mutate(MOTORCYCLE_RATIO=Motorcycles/POP_GDP) 
+
+data$POP_GDP <- NULL
+data$Cars <- NULL
+data$Motorcycles <- NULL
+```
+
+(13) Lastly, the values for tractors are very low in most municipalities and also does not reflect anything related to GDP_CAPITA. Hence, we will be eliminating it. Similarly, we will be eliminating Post office as well as the count is not useful for us. 
+
+```{r}
+data$Wheeled_tractor <- NULL
+data$POST_OFFICES<- NULL
+data$AREA<- NULL
+data$GVA_MAIN<- NULL
+data$`IBGE_15-59`<-NULL
+data$`IBGE_CROP_PRODUCTION_$`<-NULL
+```
+
+There are two columns for both municipality name and state abbreviation. We will remove the duplicated columns. <br>
+The variable ESTIMATED_POP is dated as of 2016. As we do not require population as our independent variable, we will be removing it as well. <br>
+Lastly, GDP is directly related to GDP_CAPITA, and hence we cannot keep it as our independent variable. 
+
+```{r}
+data$CITY <- NULL
+data$STATE<- NULL
+data$code_mn<- NULL
+data$cod_stt<- NULL
+data$abbrv_s<- NULL
+data$ESTIMATED_POP <- NULL
+data$IBGE_POP <- NULL
+data$GDP <- NULL
+
+```
+
+
+```{r}
+glimpse(data)
+```
+
+We will first check if our data has any NA values. 
+```{r}
+sum(is.na(data))
+```
+
+As there are NA values present, we will drop the rows with NA values.
+```{r}
+data <- data %>% drop_na()
+```
+
+We have created our final dataset. Now, we will extract the dependent variable and plot a correlation plot of all the indepedent variables in order to investigate for any multicollinearity. 
+
+```{r}
+GDP_CAPITA <- data$GDP_CAPITA
+data$GDP_CAPITA <- NULL
+data$GDP_CAPITA <- GDP_CAPITA
+dependent_variables <- data
+st_geometry(dependent_variables)<-NULL
+corrplot(cor(dependent_variables[,2:23]), diag = FALSE, order = "AOE",
+         tl.pos = "td", tl.cex = 0.5, method = "number", type = "upper",
+         number.cex = 0.7)
+```
+
+There are multiple arguments passed through the corrplot() function in order to plot the correlation matrix. We have chosen "AOE" as the ordering method for our correlation matrix which orders the variables in their respective order of the eigenvectors. We have passed "number" as our argument for method, which allows us to visualise the numerical vlaue of the correlation coefficients. <br>
+We will classify two variables to be significantly correlated if their correlation constant is above 0.80. As seen in the diagram above, there is only one pair of variables which is significantly correlated -- Car ratio and IDHM with R value of 0.86. Between the two variables, we will eliminate car ratio as IHDM consists information about life expectancy, income, and education which is more crucial for our model. We will now perform exploratory data analysis on both our depedent and indepedent variables.
+
+# 4. Exploratory Data Analysis
+
+In this section, each variable will be analysed by plotting histograms and box plots. Through these diagrams, we can understand the distribution of the data as well as understand the distribution of outliers.
+
+## 4.1 Dependent Variable 
+
+The dependent variable for the regression model is going to be GDP per capita. The unit of GDP per capita is measured in 1000 real\$. Real$ is the official currency of Brazil. 
+
+```{r eval=FALSE}
+ggplot(data=dependent_variables, 
+             aes_string(x= "GDP_CAPITA")) +
+  geom_histogram(bins=20, 
+                 color="black", 
+                 fill="light blue")
+```
+
+The distribution above reveals a right skewed distribution. This means that most of the municipalities in Brazil have a low GDP per capita, with a few exceptions which have extremely high GDP per capita as compared to others. Statistically, the skewed dsitribution can be normalised by using log transformation. The code chunk below is used to derive a new variable called GDP_CAPITA.log by using a log transformation on the variable GDP_CAPITA.
+```{r}
+dependent_variables$GDP_CAPITA.log <- log(dependent_variables$GDP_CAPITA)
+data$GDP_CAPITA.log <- log(dependent_variables$GDP_CAPITA)
+```
+
+We will now plot a histogram with the transformed data.
+
+```{r}
+ggplot(data=dependent_variables, 
+             aes_string(x= "GDP_CAPITA.log")) +
+  geom_histogram(bins=20, 
+                 color="black", 
+                 fill="light blue")
+```
+
+With the transformation, the distribution is less skewed and hence will help us in the regression analysis. Moving on, we will perform exploratory data analysis on the independent variables. Note that both GDP_CAPITA and GDP_CAPITA.log will be fitted in the multiple regression model and will be analysed in order to find out which model performs better.
+
+## 4.2 Dependent Variable 
+
+Firsly, we will create two functions which will help us plot histograms and bar plots of the independent variables. Note that we will need to visualise dummy variables through bar plots. 
+```{r}
+plot_data <- function(maindata,attribute){
+  return(ggplot(data=maindata, 
+             aes_string(x= attribute)) +
+  geom_histogram(bins=20, 
+                 color="black", 
+                 fill="light blue"))
+}
+
+bar_plot <- function(maindata,attribute){
+  return(ggplot(data=maindata, aes_string(x=attribute))+
+  geom_bar(fill="light blue"))
+}
+```
+
+All the plots are stored in variables through the code below. This is done by using the functions made in the code above.
+
+```{r}
+CAPITAL <- bar_plot(dependent_variables,"CAPITAL")
+IDHM <- plot_data(dependent_variables,"IDHM")
+ALT <- plot_data(dependent_variables,"ALT")
+FOREIGNERS_PERCENTAGE <- plot_data(dependent_variables,"FOREIGNERS_PERCENTAGE")
+DU_URBAN_PERCENTAGE <- plot_data(dependent_variables,"DU_URBAN_PERCENTAGE")
+ACTIVE_PERCENTAGE <- plot_data(dependent_variables,"ACTIVE_PERCENTAGE")
+PLANTED_AREA_PERCENTAGE <- plot_data(dependent_variables,"PLANTED_AREA_PERCENTAGE")
+Intermediário_Adjacente <- bar_plot(dependent_variables,"Intermediário_Adjacente")
+Intermediário_Remoto <- bar_plot(dependent_variables,"Intermediário_Remoto")
+Rural_Adjacente <- bar_plot(dependent_variables,"Rural_Adjacente")
+Rural_Remoto <- bar_plot(dependent_variables,"Rural_Remoto")
+GVA_AGROPEC_Percentage <- plot_data(dependent_variables,"GVA_AGROPEC_Percentage")
+GVA_INDUSTRY_Percentage <- plot_data(dependent_variables,"GVA_INDUSTRY_Percentage")
+GVA_SERVICES_Percentage <- plot_data(dependent_variables,"GVA_SERVICES_Percentage")
+GVA_PUBLIC_Percentage <- plot_data(dependent_variables,"GVA_PUBLIC_Percentage")
+TAX_CAPITA <- plot_data(dependent_variables,"TAX_CAPITA")
+COMP_AGRICULTURE <- plot_data(dependent_variables,"COMP_AGRICULTURE")
+COMP_INDUSTRY <- plot_data(dependent_variables,"COMP_INDUSTRY")
+COMP_SERVICES <- plot_data(dependent_variables,"COMP_SERVICES")
+COMP_PUBLIC <- plot_data(dependent_variables,"COMP_PUBLIC")
+MOTORCYCLE_RATIO <- plot_data(dependent_variables,"MOTORCYCLE_RATIO")
+```
+
+Now, we will be plotting all the histograms in a tabular form so that it is more presentable. 
+
+```{r}
+ggarrange(CAPITAL, IDHM, ALT, FOREIGNERS_PERCENTAGE,
+          DU_URBAN_PERCENTAGE, ACTIVE_PERCENTAGE, PLANTED_AREA_PERCENTAGE, Intermediário_Remoto, Rural_Adjacente, Rural_Remoto, GVA_AGROPEC_Percentage, GVA_INDUSTRY_Percentage,GVA_SERVICES_Percentage,GVA_PUBLIC_Percentage,TAX_CAPITA,COMP_AGRICULTURE,COMP_INDUSTRY,COMP_SERVICES,COMP_PUBLIC,
+          MOTORCYCLE_RATIO,
+          ncol = 3, 
+          nrow = 3)
+```
+
+We can divide the analysis into two parts: <br>
+(1) Dummy variables: Bar graphs are plotted which show the proportion of data which have 0 (FALSE) and 1 (TRUE). We do not need to transform this dataset as it is prepared to be fit in a regression model. <br>
+(2) Normal variables: Many of these variables are right skewed while others are normally distributed. As we have seen in the indepedent variable exploratory analysis and in the general scene of Brazil, there is prominent inequality. Hence, we will not standardise any of the data so that we do not lose any information.
+
+# 5. Building a multiple linear regression model
+
+In order to build a regression model, we will be using the lm function which is used to fit linear models. Through this function, we will also find out the dependent variables which are statistically significant. We will fit the model according to both GDP_CAPITA and GDP_CAPITA.log in order to analyse the differences between the two models.
+
+## Choosing appropriate model 
+
+### Creating model based on raw GDP_CAPITA values.
+
+```{r}
+gdp_capita.lmr <- lm(formula = GDP_CAPITA ~ CAPITAL + IDHM + ALT+ FOREIGNERS_PERCENTAGE +
+          DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Intermediário_Remoto+ Rural_Adjacente + Rural_Remoto + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + COMP_PUBLIC + MOTORCYCLE_RATIO, data = dependent_variables)
+summary(gdp_capita.lmr)
+```
+
+The above model suggests we need to eliminate three variables when working with confidence interval of 95%. This model has an R-Square value of 0.5944 which signifies that 59.44% of the variation in the dependent variable is due to the variation in independent variables. 
+
+### Creating model based on logarithmic GDP_CAPITA values.
+
+Similar to the ethod used above, we will now use logarithmic GDP_CAPITA values to build our regression model.
+
+```{r}
+gdp_capita.lmr <- lm(formula = GDP_CAPITA.log ~ CAPITAL + IDHM + ALT+ FOREIGNERS_PERCENTAGE +
+          DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Intermediário_Remoto+ Rural_Adjacente + Rural_Remoto + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + COMP_PUBLIC + MOTORCYCLE_RATIO, data = dependent_variables)
+summary(gdp_capita.lmr)
+```
+
+The above model suggests we need to eliminate three variables when working with confidence interval of 95%. This model has an R-Square value of 0.7261 which signifies that 72.61% of the variation in the dependent variable is due to the variation in independent variables. As the R-square value of the lorithmic model is significantly better than that of the model used with raw scores, we will use the logarithmic model. Note that this model is also chosen as the linearity assumptions will be more accurately met as compared to other model.
+
+We will be using confidence interval of 95%. Therefore, with reference to the summary above, it is clear that not all the independent variables are statistically significant. The insignificant variables are: <br>
+(1) CAPITAL <br>
+(2) ALT <br>
+(3) FOREIGNERS_PERCENTAGE <br>
+(5) MOTORCYCLE_RATIO
+
+We will revise the model by removing those variables which are not statistically significant.
+
+```{r}
+gdp_capita.lmr <- lm(formula = GDP_CAPITA.log ~   IDHM +
+          DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Intermediário_Remoto+ Rural_Adjacente + Rural_Remoto + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + COMP_PUBLIC , data = dependent_variables)
+summary(gdp_capita.lmr)
+```
+The adjusted R-square values remain the same at 0.7261 after corecting the model. 
+<br>
+There are multiple assumptions made while fitting a linear model. These assumptions are:<br>
+(1) Linearity assumption <br>
+(2) Normality assumption <br>
+(3) Homoscedasticity <br>
+(4) No correlation between residuals <br>
+
+We will be performing tests on each of these assumptions to ensure that our model is accuarte. 
+
+## 5.1 Checking assumptions 
+
+We will first be checking the linearity assumption. The assumption is that the relationship between the depedent variable and indepedent variables is approximately linear. We can check this assumption through two plots.
+
+### 5.1.1 Tests for Linearity
+
+The first graph we are plotting is the Actual vs Fitted plot. 
+
+```{r}
+ols_plot_obs_fit(gdp_capita.lmr, print_plot = TRUE)
+```
+
+It is evident that almost all the points are close to the regressed diagonal line. The exception lies with points representing higher GDP_CAPITA as most of them are further away from the regressed line. However, as our sample size is more than 5000, the proportion of data which is away from the regressed line, indicating that an approximate linear relationship exists between GDP_CAPITA and the indepedent variables.
+
+To be sure of our assumption, we can plot another graph, which is the Residual vs Fitted plot. 
+
+```{r}
+ols_plot_resid_fit(gdp_capita.lmr, print_plot = TRUE)
+```
+
+From this graph we can derive few things: <br>
+(1) The relationship between dependent variable and indepedent variables represent a linear relationship as most of the residual values are spread around the horizontal line. <br>
+(2) The residuals form an approximate band around the 0 line indicating homogenity of error variance. <br>
+(3) There are few data points which are away from the horizontal line, indicating that there are few outliers present in the data. <br>
+
+### 5.1.2 Tests for multicolinearity
+
+Multicollinearity occurs when independent variables in a regression model are correlated. If multicolinearity exists between our variables, we are failing to the assumption that all our independent variables are truly independent and not related to one another. Multicollinearity can reduce the precision of the estimated coefficients, which weakens the statistical power of our regression model. Therefore, we will check if multicolinearity exists from VIF (Variance Inflation Factor) scores. We will keep the threshold for the VIF scores as 10, i.e. if any VIF score is more than 10, we will eliminate that variable.
+
+```{r}
+ols_vif_tol(gdp_capita.lmr)
+```
+
+Since the VIF of the independent variables are less than 10, we can safely conclude that there are no sign of multicollinearity among the independent variables.
+
+### 5.1.3 Test for Normality Assumption
+
+```{r}
+ols_plot_resid_hist(gdp_capita.lmr)
+```
+
+As seen above, the residual data resembles a normal distribution. Most of the statistical tests which check for normality in one-sample data do not allow a sample size more than 5000. The only test which allows a sample size more than 5000 is the Kolmogorov-Smirnov test, however, this test is not designed for such a big dataset. To confirm that our data does not violdate the normality assumption, we will be plotting a density plot and QQ plot to determine normality in the residual data.
+```{r}
+# Density plot
+ggdensity(gdp_capita.lmr$residuals, fill = "lightgray")
+```
+
+From the diagram above, we are able to notice a grpah which resembles a normal distribution for our residual data. To double confirm our findings, we will also be plotting the QQ plot from the code below. 
+
+```{r}
+# QQ plot
+ggqqplot(gdp_capita.lmr$residuals)
+```
+
+The slope of the line is roughly 45 degrees and almost all the points are located in close proximity of the slope. The exception is for larger data. Given the large dataset which contains more than 5000 points, having little variation in the outliers is absolutely understandable. Hence, from the graph we can conclude that our residual data does not violate the normality assumption.
+
+### 5.1.4 Test for Spatial Autocorrelation
+
+In this section, we will be checking if our residual data from the linear regression is spatially correlated.
+Firstly, we will add the residual data in our sf data and then convert the sf data into spatial polygon data frame format because spdep functions can only process spatial data objects.
+
+```{r}
+data$residuals <- gdp_capita.lmr$residuals
+data.sp <- as_Spatial(data)
+data.sp
+```
+
+To visualise the residuals, we will use tmap package to display the distribution of the residuals.
+
+```{r}
+tm_shape(data)+
+  tm_polygons("residuals", border.col = "black",border.alpha = 0.2)
+```
+
+From the figure above, we can infer that spatial autocorrelation of residuals exist. In order to find out if the autocorrelation is statistically significant, we will perform global moran's I test. To perform this test, we need a weight matrix.
+
+We will be creating a distance based weight matrix. Firstly, we will calculate the distance for which all the municipalities have at least one neighbour. 
+
+```{r}
+coords <- coordinates(data.sp)
+k1 <- knn2nb(knearneigh(coords))
+k1dists <- unlist(nbdists(k1,coords,longlat = TRUE))
+summary(k1dists)
+```
+
+As seen above, 370 km is the cut off distance such that all the municipalities have at least one neighbour. We will compute the distance-based weight matrix by using dnearneigh() function of spdep.
+```{r}
+nb <- dnearneigh(coordinates(data.sp), 0, 370, longlat = TRUE)
+summary(nb)
+```
+Next, nb2listw() of spdep packge will be used to convert the output neighbours lists (i.e. nb) into a spatial weights.
+```{r}
+nb_lw <- nb2listw(nb, style = 'W')
+summary(nb_lw)
+```
+Next, lm.morantest() of spdep package will be used to perform Moran’s I test for residual spatial autocorrelation.
+The null hypothesis for this test is that the residuals are randomly distributed among the municipalities of Brazil. This test will be conducted at a 95% confidence interval. 
+```{r}
+lm.morantest(gdp_capita.lmr, nb_lw)
+```
+
+The p-value is 2.2e-16, which is less than 0.05. Hence, we reject the null hypothesis. We can conclude that the residual data are not randomly distributed . The moran's I value is 0.02, which is very close to 0 indicating that the magnitude of clustering is low, even though we reject the null hypothesis. The findings from this test imply that there are confounding variables which affect the GDP per ceapita in the municipalities in Brazil. Even though the test indicates that the relationships in the model is stationary, this is acceptable as there are numerous more reasons which are culturally, politically, and socially linked factors which we do not have in this dataset. 
+
+### 5.1.4 Test for Heteroscedacity
+
+One of the important assumptions of linear regression is that, there should be no heteroscedasticity of residuals. In simpler terms, this means that the variance of residuals should not increase with fitted values of independent variable. It is customary to check for heteroscedasticity of residuals once you build the linear regression model. The reason is, we want to check if the model thus built is unable to explain some pattern in the response variable (Y), that eventually shows up in the residuals.
+
+We will perform Breusch Pagan Test for Heteroskedasticity.  <br>
+
+Null hypothesis: The variance is constant, i.e. the data is there is no heteroscedasticity.<br>
+Alternate hypothesis: The variance is not constant, i.e. the data is there is heteroscedasticity.<br>
+Significance level: 0.05 <br>
+
+```{r}
+ols_test_breusch_pagan(gdp_capita.lmr)
+```
+
+As the p-value for this test is less than 0.05, we reject the null hypothesis. We can conclude that there is heteroscedasticity in our data with 95% confidence. This test suggests that there is a lot of noise in our data which leads to inconsistent variation of data. This is not good for our regression model, however, given the number of variables and observations, building a perfect model is very hard. Therefore, this is one of the drawbacks of the regression model. 
+
+### 5.1.5 Conclusion from tests
+
+Most of the assumptions of linear regression models have been met as seen above. From the tests above, we were not able to prove if the data is non-stationary as autocorrelation was found when Moran's test was conducted. Furthermore, through Breusch Pagan Test, we were also able to find out that heterescedacity is present in our regression model which is a drawback for our model.
+<br>
+The drawbacks of this regression model will be overcomed by making a Geographically Weighted Regression Model. This model will account for the spatial location for each municipality when factoring the role each independent variable play. 
+
+## 5.2 Analysis of Multiple Linear Regression Method
+
+To analyse our multiple regression model, we will be analysing how each independent variable affects GDP per capita. This relationship can be found by analysing the coefficients of each of the independent variables. These coefficients can be obtained from the code below.
+```{r}
+coefficients <- as.data.frame(gdp_capita.lmr$coefficients)
+colnames(coefficients) <- c("Value")
+print(coefficients)
+```
+
+There are a total of 17 variables in our model. Out of the seventeen variable, 5 variables are negative. Negative coefficients tell us that there is an negative relationship between the independent variable and the dependent variables. Note that the dependent variable, GDP_CAPITA has the unit of 1000 real (~S$265) which is why all our coefficients are in decimal place. For easier interpretation, we will multiply our dependent variable by 1000 to make the unit of GDP_CAPITA as 1 real.
+```{r}
+coefficients$Value <- coefficients$Value *1000
+coefficients
+```
+The five variables which are negative are:  <br>
+(1) COMP_INDUSTRY -4.097323 <br>
+(2) COMP_PUBLIC -2.924581 <br>
+(3) DU_URBAN_PERCENTAGE -2.396971 <br>
+(4) GVA_PUBLIC_Percentage -0.004117840 <br>
+(5) GVA_SERVICES_Percentage -0.003278772 <br>
+
+COMP_INDUSTRY (Percentage of Company in Industrial Services), COMP_PUBLIC (Percentage of Company in Public Services) and DU_URBAN_PERCENTAGE (Percentage of domestic units which are urban) have a <b> strong negative relationship</b> with these GDP_CAPITA. With increase in proportion for each of these variables, there is a decrease in GDP per capita. As this is a comparitive study done for all the municipalities, these coefficents suggest that municipalities which are heavily focused in industrial services and public services have lower GDP per capita than other municipalities which have higher proprotion of other type of companies. GVA_PUBLIC_Percentage (Percentage of Gross Value Add By Public Services) and GVA_SERVICES_Percentage (Percentage of Gross Value Add By Commercial Services) are negative but very close to zero suggesting that they do not have a significant relationship on GDP_CAPITA.
+<br>
+
+The twelve variables which are positive are: <br>
+(1) IDHM	4481.006 <br>
+(2) <dummy variable> Intermediário_Remoto	366.9998 <br>
+(3) <dummy variable> Rural_Remoto	261.168 <br>
+(4) TAX_CAPITA	71.52464 <br>
+(5) <dummy variable> Rural_Adjacente	70.48606 <br>
+(6) <dummy variable> Intermediário_Adjacente	52.03362 <br>
+(7) ACTIVE_PERCENTAGE	18.27565 <br>
+(8) COMP_SERVICES	8.437904 <br>
+(9) PLANTED_AREA_PERCENTAGE	5.337640 <br>
+(10) COMP_AGRICULTURE	3.477837 <br>
+(11) GVA_INDUSTRY_Percentage	0.01028729 <br>
+(12) GVA_AGROPEC_Percentage	0.005998346 <br>
+
+The variables displayed above are the independent variables which have a positive relationship with GDP_CAPITA. Other than for the dummy variables marked above, this means that the single unit increase in the variable leads to an increase in GDP_CAPITA with an amount of the value of the coefficient. For example, IDHM (Human Development Index) has a coefficient of 4481.006. This means that for every one unit of increase in IDHM, the GDP_CAPITA increases by roughly 4481 real. As IDHM ranges from 0-1, a better understanding of this coefficient will be that for every 0.1 increase in IDHM, the GDP_CAPITA increases by roughly 448.1 real. IDHM is a composite index consisting of education, life expectancy, and income. this indicates that  public infrastructure such as schools and hospitals significantly contribute to the increase in GDP per capita, and are essential to every municipality. <br> <br>
+
+The dummy variable is analysed in a different way. For example, Intermediário_Remoto has a coefficient of 366.9998. This means that if a municipality is Intermediário_Remoto then it is likely to have 367 real more in their GDP per capita than those municipalities which dont belong to this category. Similar conclusions can be drawn from the other dummy variables. To be very honest, it is very surprising to notice that Rural and remote municipalities tend to have more GDP_CAPITA. One of the major reasons for this is due to lower population as compared to urban areas.
+
+# 6. Building Hedonic GDP_CAPITA Models using GWmodel
+
+A geographically weighted regression is a local form of linear regression used to model spatially varying relationships. We have already created an exploratory multiple linear regression model for GDP_CAPITA. GWR will increase the accuracy of our model as it will construct a separate equation for every municipality in the dataset incorporating the dependent and explanatory variables of features falling within the bandwidth of each target feauture. This means that each equation is calibrated using a different weighting of the observations contained in the data set.
+There are many variations of a geographically weighted regression. The parameters chosen for our regression model are described below.
+
+## 6.1 Building Fixed Bandwidth GWR Model
+
+### Rationale for using Gausian Kernel
+The assumption in a GWR model is that observations nearby one another have a greater influence on one another’s parameter estimates than observations farther apart. The weight assigned to each observation is based on a distance decay function from the centroid of each municipality.The weights are determined using a kernel, which is a distance decay function that determines how quickly weights decrease as distances increase. We have chosen our kernel as <b>gausian</b> as it assigns a weight of one to the regression feature, and weights for the surrounding features smoothly and gradually decrease as the distance from the regression feature increases. As we have more than 5000 municipalities in our regression analysis, the gausian kernel is the most appropriate weighting scheme as municipalities which are further away from the regression feauture are also considered but are given a very low weightage. This is because the gaussian kernel never reaches zero, hence each municipality have weights for all the other municipalities based on distance. 
+<br>
+
+### Rationale for using Fixed bandwidth
+There are two types of bandwidths we can use: Fixed or Adapative. Fixed bandwidth will consider all the neighbours in a given distance whereas adaptive bandwidth will consider optimal number of neighbours. Adaptive bandwidths require the calculation of a distance matrix, which will require more than 5000 * 5000 calculations to build the matrix. As we will be publishing this report on RPubs, we will avoid using adaptive bandwidth as the matrix data file itself takes up 250 MB. <br>
+For adaptive bandwidth, GWR will compute the optimal distance (for a fixed kernel) while minimising the Cross validation score.
+
+### Rationale for using Cross validation Approach 
+The approach used in calculating neighbour is <b> Cross Validation</b>.
+In geographically weighted regression, one must determine a window size which will be used to subset the data locally. The cross-validation procedure is used to determine a globally optimal window size. The CV score is better than the alternative approach (AIC score) for this case, as the degrees of freedom change in the AIC approach while adjusting the bandwidth, which is not required in this model. 
+
+
+### 6.1.1 Computing fixed bandwith
+
+The function bw.gwr() will be used to compute the fixed bandwidth. As described above, we will be using a fixed bandwidth on a gausian kernel which aims to minimise cross validation scores.
+
+```{r eval=FALSE}
+bw.fixed <- bw.gwr(formula = GDP_CAPITA.log ~ IDHM  +
+          DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Rural_Adjacente + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + Rural_Remoto+ GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + COMP_PUBLIC , data = data.sp, approach = "CV", kernel="gaussian", adaptive=FALSE, longlat=TRUE)
+```
+
+### 6.1.2 GWModel method - fixed bandwith
+As we have found the bandwidth, we will create the geogrpahically weighted model and determine if our model has improved by considering the spatial relationships.
+```{r}
+gwr.fixed <- gwr.basic(formula = GDP_CAPITA.log ~ IDHM  + DU_URBAN_PERCENTAGE + ACTIVE_PERCENTAGE + PLANTED_AREA_PERCENTAGE + Intermediário_Adjacente+ Rural_Adjacente + GVA_AGROPEC_Percentage+ GVA_INDUSTRY_Percentage + GVA_SERVICES_Percentage + Rural_Remoto+ GVA_PUBLIC_Percentage + TAX_CAPITA + COMP_AGRICULTURE + COMP_INDUSTRY + COMP_SERVICES + COMP_PUBLIC , data = data.sp, bw = 520.5, kernel = 'gaussian', longlat = TRUE)
+gwr.fixed
+```
+
+By incorporating the GWR model in our multiple regression model, our Adjusted R-Square value has increased from 0.7232 to 0.787427. This means that the spatial weights have justified for 6.42% of the variation in GDP_CAPITA. Due to the spatial weights, our model has significantly improved as nearly 80% of the variation in GDP_CAPITA is justified. 
+
+
+# 7 Visualisation through Choropleth Maps
+
+We will first obtain the data from the GWR model through the code below. 
+
+```{r}
+gdp_capita.fixed <- st_as_sf(gwr.fixed$SDF) %>%
+  st_transform(crs=4674)
+```
+
+## 7.1 Plotting Local R-square values
+
+```{r eval=FALSE}
+one <- tm_shape(gdp_capita.fixed)+
+  tm_polygons("Local_R2",border.col = "black", border.alpha = 0.2, style="quantile")
+two <- tm_shape(data)+
+  tm_polygons("GDP_CAPITA",border.col = "black", border.alpha = 0.2, style="quantile")
+tmap_arrange(one,two,ncol = 2,nrow = 1)
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/1.png) 
+
+The above diagram shows the Local R-square value and the GDP_CAPITA for municipalities in Brazil. The point of this comparison is not to analyse each municipality independently but rather to understand the patterns discovered. Local R-square value indicate the amount of variation in the GDP_CAPITA which is due to the dependent variables for each municipality. We can draw strong observations from the map above. The eastern region of Brazil has low GDP_CAPITA, and has the highest R-square values. This means that our GWR model works better for municipalities which have lesser GDP_CAPITA as it is explained from the independent variables chosen. It should also be noted that the similar inverse relationship is observed in the central region of Brazil(which has the highest GDP_CAPITA, but lowest R-square value). Another thing to note is that we have used quartile breaks in GDP_CAPITA, and it is very evident that the last break consists majority of the data. This was done to understand the relationship of between Local R-square and GDP_CAPITA, which would not be possible otherwise due to the extremely skewed nature of the data. The exception to this analysis is the southern region of Brazil which has higher GDP_CAPITA and a relatively high local r-square value. We can infer that there are many other variables which need to be included in order to understand the richer part of Brazil as this model severely lacks that understanding. 
+
+## 7.2 Plotting significant parameter estimates 
+
+We will first manupulate the data in order to sort out regions which are statistically significant when comparing the parameter estimates for each of the dependent variables.
+
+```{r eval=FALSE}
+gdp_capita.fixed <- gdp_capita.fixed %>%
+  mutate(IDHM_TV=abs(IDHM_TV)) %>%
+  mutate(DU_URBAN_PERCENTAGE_TV=abs(DU_URBAN_PERCENTAGE_TV)) %>%
+  mutate(ACTIVE_PERCENTAGE_TV=abs(ACTIVE_PERCENTAGE_TV)) %>%
+  mutate(PLANTED_AREA_PERCENTAGE_TV=abs(PLANTED_AREA_PERCENTAGE_TV)) %>%
+  mutate(Intermediário_Adjacente=abs(Intermediário_Adjacente_TV)) %>%
+  mutate(Rural_Adjacente=abs(Rural_Adjacente_TV)) %>%
+  mutate(GVA_AGROPEC_Percentage=abs(GVA_AGROPEC_Percentage_TV)) %>%
+  mutate(GVA_SERVICES_Percentage=abs(GVA_SERVICES_Percentage_TV)) %>%
+  mutate(Rural_Remoto_TV=abs(Rural_Remoto_TV)) %>%
+  mutate(GVA_PUBLIC_Percentage_TV=abs(GVA_PUBLIC_Percentage_TV)) %>%
+  mutate(TAX_CAPITA_TV=abs(TAX_CAPITA_TV)) %>%
+  mutate(COMP_AGRICULTURE_TV=abs(COMP_AGRICULTURE_TV)) %>%
+  mutate(COMP_INDUSTRY_TV=abs(COMP_INDUSTRY_TV)) %>%
+  mutate(COMP_SERVICES_TV=abs(COMP_SERVICES_TV)) 
+```
+
+The objective of this section is to map out parameter estimates which are significant. It will be plotted along side the GDP_CAPITA raw values in order to draw understanding from the GWR model. Note that the confidence interval used in this report is 95%, hence the municipalities will be considered to have a significant value for a particular independent if the absolute value of the t-statistic is more than or equal to 1.96.
+In order to perfrom this analysis, the code below creates functions which will help us arrange the choropleth maps in neat manner. 
+
+```{r eval=FALSE}
+makeMap <- function(variable,tscore){
+  one <- tm_shape(gdp_capita.fixed)+
+    tm_polygons(variable,border.col = "black", border.alpha = 0.2)
+  two <- tm_shape(gdp_capita.fixed)+
+    tm_polygons(tscore,border.col = "black", border.alpha = 0.2, breaks=c(0,1.96,Inf))
+  three <- tm_shape(data)+
+    tm_polygons("GDP_CAPITA",border.col = "black", border.alpha = 0.2, style="quantile")
+  
+  return(tmap_arrange(one,two,three,ncol=3,nrow = 1))
+}
+
+IDHM <- makeMap("IDHM","IDHM_TV")
+DU_URBAN_PERCENTAGE <- makeMap("DU_URBAN_PERCENTAGE","DU_URBAN_PERCENTAGE_TV")
+ACTIVE_PERCENTAGE <- makeMap("ACTIVE_PERCENTAGE","ACTIVE_PERCENTAGE_TV")
+PLANTED_AREA_PERCENTAGE <- makeMap("PLANTED_AREA_PERCENTAGE","PLANTED_AREA_PERCENTAGE_TV")
+Intermediário_Adjacente <- makeMap("Intermediário_Adjacente","Intermediário_Adjacente_TV")
+Rural_Adjacente <- makeMap("Rural_Adjacente","Rural_Adjacente_TV")
+GVA_AGROPEC_Percentage <- makeMap("GVA_AGROPEC_Percentage","GVA_AGROPEC_Percentage_TV")
+GVA_INDUSTRY_Percentage <- makeMap("GVA_AGROPEC_Percentage","GVA_INDUSTRY_Percentage_TV")
+GVA_SERVICES_Percentage <- makeMap("GVA_SERVICES_Percentage","GVA_SERVICES_Percentage_TV")
+Rural_Remoto <- makeMap("Rural_Remoto","Rural_Remoto_TV")
+GVA_PUBLIC_Percentage <- makeMap("GVA_PUBLIC_Percentage","GVA_PUBLIC_Percentage_TV")
+TAX_CAPITA <- makeMap("TAX_CAPITA","TAX_CAPITA_TV")
+COMP_AGRICULTURE <- makeMap("COMP_AGRICULTURE","COMP_AGRICULTURE_TV")
+COMP_INDUSTRY <- makeMap("COMP_INDUSTRY","COMP_INDUSTRY_TV")
+COMP_SERVICES <- makeMap("COMP_SERVICES","COMP_SERVICES_TV")
+```
+
+### Parameter estimates for independent variables
+
+```{r eval=FALSE}
+IDHM 
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/2.png) 
+
+
+It is very prominent that IDHM is significant in almost all the municipalities in Brazil. This is because this index captures education, life expectancy and income, which is key to GDP_CAPITA. This variable was also found to have the highest correlation coefficient with GDP_CAPITA when compared in the multiple linear regression model as well. When we account for spatial variation, IDHM tops the list as the most significant independent variable, indicating that it is one of the most important methods through which GDP_CAPITA can be estimated.
+
+```{r eval=FALSE}
+DU_URBAN_PERCENTAGE
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/3.png) 
+
+
+The percentage of urban units is found to be significant in the western, eastern and sothern regions of Brazil. It can be inferred that this independent variable is significant only when its is either too low or too high, indicating that it does not play a big factor in determining GDP_CAPITA in municipalities which have average urban housing rates. 
+
+```{r eval=FALSE}
+ACTIVE_PERCENTAGE
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/4.png) 
+
+
+Active percentage reflects the percentage of population which is performing economically active work. Almost all the municipalities consider this variable as a significant variable regardless of their active percentage indicating that it one of the most important factor when determining the GDP_CAPITA.
+
+```{r eval=FALSE}
+PLANTED_AREA_PERCENTAGE
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/5.png) 
+
+Planted_area_percentage reflects the amount of land dedicated to farming. As seen that it is a significant factor in almost all the municipalities in Brazil indicating Brazil's dependence on the agricultural economy. We can also observe that this proportion is lesser in economically richer areas.
+
+```{r eval=FALSE}
+Intermediário_Adjacente
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/6.png) 
+
+
+This index determines semi-rural areas. It is evident that these regions have a higher GDP_CAPITA as compared to the other types of regions. 
+
+```{r eval=FALSE}
+Rural_Adjacente
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/7.png) 
+
+```{r eval=FALSE}
+GVA_AGROPEC_Percentage
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/8.png) 
+
+This index tells us the percentage of value addition by the agricultural industry. It is significant in almost all the municipalities in Brazil except the northern regions. Agriculture is one of the biggest factors contributing to the GDP_CAPITA, as we have noticed from the other variables analysed above. 
+
+
+```{r eval=FALSE}
+GVA_SERVICES_Percentage
+```
+![](/Users/Amey/Desktop/Y2S2/IS415/assignment4/data/screenshots/9.png) 
+
+This variable is insignificant in almost all the municipalities in Brazil.
+
+# Conclusion
+
+The model was significantly improved when the GWR model was adopted. Through this method, we could explain how each independent variable played a role in different regions which was key to our understanding of the different factors which affect the GDP_CAPITA. Local statistics help us justify the findings from global statistics and provide us insights on a deeper level through which we can uncover findings which were not visible before. We understand how spatial relationships play an important role and dig deeper to find out variables which do not affect GDP_CAPITA at all!
+
+

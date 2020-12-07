@@ -1,0 +1,3 @@
+"0","coefficients <- as.data.frame(gdp_capita.lmr$coefficients)"
+"0","colnames(coefficients) <- c(""Value"")"
+"0","print(coefficients)"

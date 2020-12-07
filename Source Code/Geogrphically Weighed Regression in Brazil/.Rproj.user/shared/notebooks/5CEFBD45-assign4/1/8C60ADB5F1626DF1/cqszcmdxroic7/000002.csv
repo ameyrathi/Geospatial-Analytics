@@ -1,0 +1,14 @@
+"0","municipality <- read_municipality(year=2016)"
+"2","Using year 2016
+"
+"2","Loading data for the whole country. This might take a few minutes.
+
+"
+"1","  |                                                                                                                                       "
+"1","  |                                                                                                                                 |   0%"
+"1","  |                                                                                                                                       "
+"1","  |=====                                                                                                                            |   4%"
+"1","  |                                                                                                                                       "
+"1","  |==========                                                                                                                       |   7%"
+"2","
+"

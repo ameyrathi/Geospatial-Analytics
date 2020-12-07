@@ -1,0 +1,1 @@
+"0","brazil_cities <- brazil_cities %>% drop_na(LONG) "

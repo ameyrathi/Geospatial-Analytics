@@ -1,0 +1,542 @@
+---
+title: "assignment3"
+author: "Amey Rathi"
+date: "5/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Objective of the report
+
+Social area analysis will be performed 
+
+# 1. Importing all the required packages
+
+To get started with our analysis, we will get started with importing the required R packages which will help us in the upcoming sections to perform the analysis. Here is a brief description of the packages used: <br>
+* The tidyverse package will be used heavily to perform data wrangling and clean our data sets in order to perform the analysis required. <br>
+* The rgdal, spdep, and sf package will be used for spatial data manupulation and analysis. They are used for performing various different functions on spatial data. <br>
+* The corrplot and tmap packages will be used for visualisation purposes. <br>
+* ClustGeo, heatmaply, and psych will be used to perform statistical analysis on spatial data. <br>
+```{r}
+packages = c('rgdal', 'spdep', 'ClustGeo',  'tmap', 'sf', 'ggpubr', 'cluster', 'heatmaply', 'corrplot', 'psych', 'tidyverse',"factoextra")
+for (p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+    }
+  library(p,character.only = T)
+}
+```
+
+# 2. Importing all datasets 
+
+Through the code in this section, we will be importing all the required datasets. These involve both spatial and aspatial data.
+
+## 2.1 Importing aspatial data 
+
+The data below is taken from is from www.data.gov.sg, which is an official government website for Singapore's public data. The URL for the dataset is as follows: <br>
+https://data.gov.sg/dataset/singapore-residents-by-subzone-and-type-of-dwelling-2011-2019
+```{r}
+residentData <- read_csv("data/aspatial/singapore-residents-by-subzone-and-type-of-dwelling-2011-2019/planning-area-subzone-age-group-sex-and-type-of-dwelling-june-2011-2019.csv")
+```
+
+## 2.2 Importing geospatial data
+
+There are multiple datasets which are imported in this section. The function st_read will be used while importing it to ensure that the geospatial data is imported in sfc format. 
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial/master-plan-2014-subzone-boundary-no-sea-shp", layer="MP14_SUBZONE_NO_SEA_PL")
+```
+The above code imports the subzone boundary of Singapore. As seen in the output, there is no CRS assigned currently and the data is represented in meters. Hence, we will assign the EPSG code of 3414 and transform the data into EPSG 3414 format, which is the most accurate projection system for spatial data in Singapore.  
+
+```{r}
+mpsz <- st_set_crs(mpsz,3414)
+mpsz3414 <- st_transform(mpsz,3414)
+```
+
+Next, we will import geospatial data for all the important urban functions in Singapore. 
+
+```{r}
+business <- st_read(dsn="data/geospatial", layer="Business")
+financial <- st_read(dsn="data/geospatial", layer="Financial")
+govt <- st_read(dsn="data/geospatial", layer="Govt_Embassy")
+private <- st_read(dsn="data/geospatial", layer="Private residential")
+shopping <- st_read(dsn="data/geospatial", layer="Shopping")
+```
+Spatial properties of various urban functions are imported above. As seen in the output, all of them have CRS 4326, and expressed in meters. Singapore uses an EPSG code of 3414. Hence, to ensure that the data is projected accurately, we will be transforming the data into EPSG 3414. 
+
+### Transforming all geospatial data into EPSG 3414
+```{r}
+business3414 <- st_transform(business,3414)
+financial3414 <- st_transform(financial,3414)
+govt3414 <- st_transform(govt,3414)
+private3414 <- st_transform(private,3414)
+shopping3414 <- st_transform(shopping,3414)
+
+```
+
+### Checking the data
+```{r}
+business3414
+financial3414
+govt3414
+private3414
+shopping3414
+```
+The above output shows that all the sfc tables containing key urban feautures have been converted to EPSG 3414 format, which is the Singapore standard. this will allow our data to be projected accurately.
+
+The dataset for business can be further seperated into business and industry. Industry will include all manufacturing and other primary and secondary businesses whereas Business will include all the tertiary businesses.  
+
+```{r}
+industry3414 <- business3414 %>%
+  filter(FAC_TYPE==9991)
+business3414 <- business3414 %>%
+  filter(FAC_TYPE==5000)
+
+summary(industry3414)
+```
+
+# 3. Data Inspection
+
+## 3.1 Examining population demographics 
+
+The resident data is inspected below using the summary function which allows us to see the data class for each column and its distribution.
+
+```{r}
+summary(residentData)
+```
+
+As seen above, all columns except for resident_count and year have the class character. As the median for resident count is 0 and the third quartile is below the mean, it is very evident that more than 50% of the subzones have a residential population of 0. This is because many subzones are inhabitable (ex: Central Catchement Area, Western Catachement Area, etc.) and various subzones such as Changi Bay contain key transportation facilities of Singapore, hence do not have any population. Secondly, the data in this table is from year 2011 to 2019. As we will beperforming analysis on the latest (2019) data, we will remove data for all the other years (2011-2018).
+
+## 3.2 Examining urban functions 
+
+### 3.2.1 Businesses
+
+```{r}
+summary(business3414)
+```
+From the above summary, we can notice that there are 266 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct businesses. As each business is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+business3414_cleaned <- business3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(business3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the business based on its location. However, before that, we will create a new variable which only consists of the subzone name and location which will make it easier to perform relational joins and assigning subzones. 
+```{r}
+mpsz3414_2 <- mpsz3414 %>%
+  rename("subzone"=SUBZONE_N)%>%
+  select(subzone,geometry)
+
+business_by_subzone <- st_intersection(mpsz3414_2,business3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Businesses=n())
+
+summary(business_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(business_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.2 Industries 
+```{r}
+summary(industry3414)
+```
+Similarly to the methodology used above, we will group by poi_id so that we remove duplicated values. This is because each industry has a unique POI_ID.
+```{r}
+industry3414_cleaned <- industry3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(industry3414_cleaned)
+```
+We will now assign a subzone to each of the industry through st_intersection method.
+
+```{r}
+industry_by_subzone <- st_intersection(mpsz3414_2,industry3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Industries=n())
+
+summary(industry_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(industry_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+ 
+
+### 3.2.3 Shopping infrastructure 
+
+```{r}
+summary(shopping3414)
+```
+From the above summary, we can notice that there are 102 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct shopping infrastructure in order to avoid repetitions. As each shooping infrastructure is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+shopping3414_cleaned <- shopping3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(shopping3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the shopping infrastructure based on its location. 
+
+```{r}
+shopping_by_subzone <- st_intersection(mpsz3414_2,shopping3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Shopping_Infrastructures=n())
+
+summary(shopping_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(shopping_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.4 Government Institutions
+
+```{r}
+summary(govt3414)
+```
+From the above summary, we can notice that there are 28 NA values for ST_NAMES. However, ST_NAMES is not our variable of interest. We need to prepare the dataset such that it contains distinct government institutions in order to avoid repetitions. As each governemnt institution is identified with its POI_ID, we will group by the POI_ID in order to remove any duplicated data.
+```{r}
+govt3414_cleaned <- govt3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE)
+
+summary(govt3414_cleaned)
+```
+As the data is now clean, we will create a new table which has the subzone name for each of the government institution based on its location. 
+
+```{r}
+govt_by_subzone <- st_intersection(mpsz3414_2,govt3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Govt_institutions=n())
+
+summary(govt_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(govt_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.5 Financial institutions  
+```{r}
+summary(financial3414)
+```
+There are various variables in this dataset which contain NA values. However, as our end goal is to find the number of financial institutions present in a subzone, we will count distinct locations by grouping the table by POI_ID as each distinct location of a financial institution has a distinct POI_ID. 
+
+```{r}
+financial3414_cleaned <- financial3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE) 
+
+summary(financial3414_cleaned)
+```
+We will now assign a subzone to each of the financial institution through st_intersection method.
+
+```{r}
+financial_by_subzone <- st_intersection(mpsz3414_2,financial3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Financials=n())
+
+summary(financial_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+```{r}
+is_empty(financial_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+### 3.2.6 Upmarket residential area 
+```{r}
+summary(private3414)
+```
+There are various variables in this dataset which contain NA values. However, as our end goal is to find the number of upmarket residential loctations present in a subzone, we will count distinct locations by grouping the table by POI_ID as each distinct location of a private property has a distinct POI_ID. 
+
+```{r}
+private3414_cleaned <- private3414 %>%
+  distinct_at(vars(POI_ID),.keep_all = TRUE) 
+
+summary(private3414_cleaned)
+```
+We will now assign a subzone to each of the private property location through st_intersection method.
+
+```{r}
+private_by_subzone <- st_intersection(mpsz3414_2,private3414_cleaned) %>%
+  group_by(subzone) %>%
+  summarise(Private_properties=n()) 
+
+summary(private_by_subzone)
+```
+As we have eliminated duplicates, we will now check if any location value is empty
+
+Check for duplicate as well.
+```{r}
+is_empty(private_by_subzone$geometry)
+```
+As seen above, there are no empty values. Hence, we have thoroughly cleaned this dataset.
+
+
+# Performing data cleaning
+
+## Identifying missing values 
+```{r}
+sum(complete.cases(residentData))
+sum(!complete.cases(residentData))
+```
+As seen above, none of the 883728 observations have NA value. 
+
+## Joining data to make demographics into sf format
+```{r}
+mpsz3414 <- mpsz3414%>%rename("subzone"=SUBZONE_N)
+mpsz3414_1 <- mpsz3414 %>%
+  select(subzone,SHAPE_Area, geometry)%>%
+  mutate(SHAPE_Area=SHAPE_Area/1000000)
+```
+
+## Transforming data
+
+```{r}
+one <- residentData %>%
+  spread(age_group, resident_count) %>%
+  mutate(YOUNG=rowSums(.[6:9])+rowSums(.[15])) %>%
+  mutate(ACTIVE=rowSums(.[10:14])+rowSums(.[16:18])) %>%
+  mutate(AGED=rowSums(.[19:24])) %>%
+  select(subzone,type_of_dwelling,YOUNG,ACTIVE,AGED) %>%
+  group_by(subzone) %>%
+  summarise(YOUNG = sum(YOUNG), AGED= sum(AGED), ACTIVE = sum(ACTIVE))%>%
+  mutate(TOTAL=YOUNG+AGED+ACTIVE)
+
+one$subzone <- toupper(one$subzone)
+
+one <- left_join(one,mpsz3414_1)
+
+one <- one %>%
+  mutate(DENSITY=TOTAL/SHAPE_Area)
+
+
+two <- residentData %>%
+  spread(type_of_dwelling,resident_count)
+
+names(two)<-str_replace_all(names(two), c(" " = "_" , "-" = "" ))
+colnames(two)[11] <- "HUDC_Flats"
+
+
+three <- two %>%
+  group_by(subzone) %>%
+  summarise(Condominiums_and_Other_Apartments=sum(Condominiums_and_Other_Apartments),
+            HDB_1_and_2Room_Flats=sum(HDB_1_and_2Room_Flats),
+            HDB_3Room_Flats=sum(HDB_3Room_Flats),
+            HDB_4Room_Flats=sum(HDB_4Room_Flats),
+            HDB_5Room_and_Executive_Flats= sum(HDB_5Room_and_Executive_Flats),
+            HUDC_Flats = sum(HUDC_Flats),
+            Landed_Properties = sum(Landed_Properties),
+            Others = sum(Others)) %>%
+  mutate(HDB_3_and_4Room_Flats=HDB_3Room_Flats+HDB_4Room_Flats) %>%
+  select(subzone,HDB_1_and_2Room_Flats,HDB_3_and_4Room_Flats,HDB_5Room_and_Executive_Flats,Condominiums_and_Other_Apartments,Landed_Properties)
+
+three$subzone <- toupper(one$subzone)
+```
+
+### Combining all the data 
+
+First, we will create a base table which has the subzone name and geometry
+```{r}
+data_by_subzones <- mpsz3414 %>%
+  select(OBJECTID, subzone,geometry)
+```
+
+We will now convert all the sf tables into data.frame objects by removing its special properties. This will allow us to make relational joins. 
+
+```{r}
+st_geometry(private_by_subzone) <- NULL
+st_geometry(shopping_by_subzone) <- NULL
+st_geometry(business_by_subzone) <- NULL
+st_geometry(industry_by_subzone) <- NULL
+st_geometry(govt_by_subzone) <- NULL
+st_geometry(financial_by_subzone) <- NULL
+one$geometry <- NULL
+```
+
+Now we will join all the urban properties to this table
+```{r}
+data_by_subzones <- left_join(data_by_subzones,private_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,shopping_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,business_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,industry_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,govt_by_subzone)
+data_by_subzones <- left_join(data_by_subzones,financial_by_subzone)
+```
+
+Before joining the demographic data, we will examine the data using the summary functions.
+```{r}
+summary(data_by_subzones)
+```
+As seen in the above output, almost all the properties have NA values. This is because many subzones dont contain various urban functions at all. To make the data more accurate, we will replace the NA values by 0. Note that we had already performed an NA check on while performing cleaning on the individual dataset for each urban function, hence the NA values have only arised while performing a relational join. 
+```{r}
+data_by_subzones[is.na(data_by_subzones)]=0
+```
+
+
+Joining demographic data
+```{r}
+data_by_subzones <- left_join(data_by_subzones,one)
+data_by_subzones <- left_join(data_by_subzones,three)
+```
+Examining the data 
+```{r}
+summary(data_by_subzones)
+```
+As we do not require the area if subzone, we will be removing it
+```{r}
+data_by_subzones$SHAPE_Area = NULL
+data_by_subzones$OBJECTID = NULL
+data_by_subzones$TOTAL = NULL
+rownames(data_by_subzones) <- data_by_subzones$subzone
+data_by_subzones$subzone <- NULL
+```
+From the above summary, we have 15 variables attached to every subzone for analysis. However, before we perform hierarchical cluster analysis, we will perform univariant analysis in order to understand the scale and spread of data for each of the 15 variables. 
+
+## Performing Univariant Analysis 
+
+### Understanding data through histograms
+
+work through this!!
+```{r}
+plot_data <- function(maindata,attribute){
+  return(ggplot(data=maindata, 
+             aes_string(x= attribute)) +
+  geom_histogram(bins=20, 
+                 color="black", 
+                 fill="light blue"))
+}
+private_plot <- plot_data(data_by_subzones,"Financials")
+
+box_plot <- function(maindata,attribute){
+  return(ggplot(data=maindata, aes_string(x=attribute)) +
+  geom_boxplot(color="black", fill="light blue"))
+}
+```
+
+```{r}
+private_plot <- plot_data(data_by_subzones,"Financials")
+shopping_plot <- plot_data(data_by_subzones,"Shopping_Infrastructures")
+business_plot <- plot_data(data_by_subzones,"Businesses")
+industry_plot <- plot_data(data_by_subzones,"Industries")
+govt_plot <- plot_data(data_by_subzones,"Govt_institutions")
+financial_plot <- plot_data(data_by_subzones,"Financials")
+young_plot <- plot_data(data_by_subzones,"YOUNG")
+aged_plot <- plot_data(data_by_subzones,"AGED")
+active_plot <- plot_data(data_by_subzones,"ACTIVE")
+density_plot <- plot_data(data_by_subzones,"DENSITY")
+HDB1_2_plot <- plot_data(data_by_subzones,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- plot_data(data_by_subzones,"HDB_3_and_4Room_Flats")
+HDB5_plot <- plot_data(data_by_subzones,"HDB_5Room_and_Executive_Flats")
+condo_plot <- plot_data(data_by_subzones,"Condominiums_and_Other_Apartments")
+landed_plot <- plot_data(data_by_subzones,"Landed_Properties")
+```
+
+```{r fig.retina=3}
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+```
+
+As seen above, all the data is left skewed and has widely varying scales. Before making a decision on whether or not we need to standardise the data, we will plot the data using box-whisker plot in order to identify the outliers.
+
+```{r}
+private_plot <- box_plot(data_by_subzones,"Financials")
+shopping_plot <- box_plot(data_by_subzones,"Shopping_Infrastructures")
+business_plot <- box_plot(data_by_subzones,"Businesses")
+industry_plot <- box_plot(data_by_subzones,"Industries")
+govt_plot <- box_plot(data_by_subzones,"Govt_institutions")
+financial_plot <- box_plot(data_by_subzones,"Financials")
+young_plot <- box_plot(data_by_subzones,"YOUNG")
+aged_plot <- box_plot(data_by_subzones,"AGED")
+active_plot <- box_plot(data_by_subzones,"ACTIVE")
+density_plot <- box_plot(data_by_subzones,"DENSITY")
+HDB1_2_plot <- box_plot(data_by_subzones,"HDB_1_and_2Room_Flats")
+HDB3_4_plot <- box_plot(data_by_subzones,"HDB_3_and_4Room_Flats")
+HDB5_plot <- box_plot(data_by_subzones,"HDB_5Room_and_Executive_Flats")
+condo_plot <- box_plot(data_by_subzones,"Condominiums_and_Other_Apartments")
+landed_plot <- box_plot(data_by_subzones,"Landed_Properties")
+
+ggarrange(private_plot, shopping_plot, business_plot, industry_plot, govt_plot, financial_plot,
+          young_plot, aged_plot, active_plot, density_plot, HDB1_2_plot, HDB3_4_plot, HDB5_plot, condo_plot, landed_plot,
+          ncol = 3, 
+          nrow = 2)
+```
+
+Most of the data is left skewed and contains multiple outliers. To perform accurate hierarchical cluster analysis, we will be normalising the data using min-max function. This function is preferred over using z-scores as none of the graphs resemble normality as seen in the histograms. 
+
+### Correlation
+```{r}
+data_by_subzones_sf <- data_by_subzones
+st_geometry(data_by_subzones) <- NULL
+cluster_vars.cor = cor(data_by_subzones[,2:16])
+corrplot.mixed(cluster_vars.cor,
+         lower = "ellipse", 
+               upper = "number",
+               tl.pos = "lt",
+               diag = "l",
+               tl.col = "black",
+         tl.cex=0.5,
+         number.cex=0.8)
+```
+The above matrix has the correlation coefficient for all the pairs of variables. We are now interested in capturing pairs which have the highest correlation coefficient. In order to reduce the number of variables, we will be capturing . 
+
+## Choosing cluster vars
+```{r}
+cluster_vars <- data_by_subzones %>%
+  select("Private_properties", "Shopping_Infrastructures","Businesses","Industries" ,"Govt_institutions", "Financials", "YOUNG","DENSITY","HDB_1_and_2Room_Flats","HDB_3_and_4Room_Flats","HDB_5Room_and_Executive_Flats", "Condominiums_and_Other_Apartments" , "Landed_Properties")                     
+
+```
+## standardisation of data
+```{r}
+cluster_vars.std <- normalize(cluster_vars)
+summary(cluster_vars.std)
+```
+
+
+### COV
+```{r}
+data_by_subzone.PC.cor<-prcomp(data_by_subzones[,2:16], scale=TRUE)
+summary(data_by_subzones[,2:16])
+summary(data_by_subzone.PC.cor)
+```
+### Standardising data
+```{r}
+data_by_subzones.std <- normalize(data_by_subzones)
+summary(data_by_subzones.std)
+```
+### proximity matrix
+```{r}
+proxmat <- dist(data_by_subzones.std, method = 'euclidean')
+proxmat
+```
+### selecting hierarchical clustering algo
+```{r}
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+ac <- function(x) {
+  agnes(data_by_subzones.std, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+### dendo
+```{r}
+hclust_ward <- hclust(proxmat, method = 'ward.D')
+plot(hclust_ward, cex = 0.6)
+rect.hclust(hclust_ward, k = 5, border = 2:5)
+```
+### map
+```{r}
+groups <- as.factor(cutree(hclust_ward, k=5))
+shan_sf_cluster <- cbind(shan_sf, as.matrix(groups)) %>%
+  rename(`CLUSTER`=`as.matrix.groups.`)

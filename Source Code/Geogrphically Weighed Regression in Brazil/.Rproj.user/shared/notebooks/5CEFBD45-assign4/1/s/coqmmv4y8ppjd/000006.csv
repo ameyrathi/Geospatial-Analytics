@@ -1,0 +1,45 @@
+"0","brazil.sf <- st_as_sf(brazil_cities,"
+"0","                            coords = c(""LONG"", ""LAT""),"
+"0","                      crs=4326)%>%"
+"0","  st_transform(4674)"
+"0","st_crs(brazil.sf)"
+"1","Coordinate Reference System:"
+"1","
+"
+"1","  User input:"
+"1"," "
+"1","EPSG:4674"
+"1"," "
+"1","
+"
+"1","  wkt:
+"
+"1",""
+"1","GEOGCS[""SIRGAS 2000"",
+    DATUM[""Sistema_de_Referencia_Geocentrico_para_las_AmericaS_2000"",
+        SPHEROID[""GRS 1980"",6378137,298.257222101,
+            AUTHORITY[""EPSG"",""7019""]],
+        TOWGS84[0,0,0,0,0,0,0],
+        AUTHORITY[""EPSG"",""6674""]],
+    PRIMEM[""Greenwich"",0,
+        AUTHORITY[""EPSG"",""8901""]],
+    UNIT[""degree"",0.0174532925199433,
+        AUTHORITY[""EPSG"",""9122""]],
+    AUTHORITY[""EPSG"",""4674""]]"
+"1",""
+"1","
+"
+"0","head(brazil.sf)"
+"1","Simple feature collection with 6 features and 79 fields"
+"1","
+"
+"1","geometry type:  POINT
+"
+"1","dimension:      XY
+"
+"1","bbox:           "
+"1","xmin: -49.44055 ymin: -19.15585 xmax: -39.04755 ymax: -1.72347"
+"1","
+"
+"1","CRS:            EPSG:4674
+"

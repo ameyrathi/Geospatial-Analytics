@@ -1,0 +1,8 @@
+"0","GDP_CAPITA <- data$GDP_CAPITA"
+"0","data$GDP_CAPITA <- NULL"
+"0","data$GDP_CAPITA <- GDP_CAPITA"
+"0","dependent_variables <- data"
+"0","st_geometry(dependent_variables)<-NULL"
+"0","corrplot(cor(dependent_variables[,2:23]), diag = FALSE, order = ""AOE"","
+"0","         tl.pos = ""td"", tl.cex = 0.5, method = ""number"", type = ""upper"","
+"0","         number.cex = 0.7)"

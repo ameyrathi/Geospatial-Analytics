@@ -1,0 +1,106 @@
+---
+title: "In-Class Exercise 2"
+author: "Amey Rathi"
+date: "4/28/2020"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setting up Enviornment 
+
+The code below will install all the necessary packages for the exercice 
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+packages <- c('sp', 'tidyverse', 'rgdal', 'sf', 'rgeos')
+for(p in packages){
+  if (!require(p,character.only = T)){
+    install.packages(p)
+  }
+  library(p, character.only = T)
+}
+```
+
+# Importing Geospatial Data 
+
+## Importing a polygon feauture layer in shapefile format
+These are multipolygons.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+
+sf_mpsz <- st_read(dsn = "data/geospatial", layer = "MP14_SUBZONE_WEB_PL")
+st_crs(sf_mpsz)
+
+```
+
+## Importing Cycling path layer 
+These are in linestring format.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+
+sf_cyclingPath <- st_read(dsn = "data/geospatial", layer = "CyclingPath")
+
+```
+
+## Importing Pre School layer in KML format 
+These are points.
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+
+sf_preschool <- st_read("data/geospatial/pre-schools-location-kml.kml")
+
+```
+# Plotting Zones, Cycling paths, and Pre Schools 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+plot(sf_mpsz)
+```
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+plot(sf_cyclingPath)
+```
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+plot(sf_preschool)
+```
+
+# Working with projection 
+
+The code below will assign EPSG code 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+st_crs(sf_mpsz)
+```
+This will assign specific EPSG 3414 format (Singapore standard)
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+sf_mpsz3414 <- st_set_crs(sf_mpsz, 3414)
+```
+# Checking the difference in Data 
+
+### The table below is the in the original format
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+head(sf_mpsz)
+```
+### The table below is the in the EPSG 3414 format 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+st_crs(sf_mpsz3414)
+```
+
+# Transformation is done for Pre School Data
+
+### This is the original data
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+st_crs(sf_preschool)
+```
+### This is the transformed data after the code (conversion to EPSG 3414)
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+sf_preschool3414 <- st_transform(sf_preschool, 3414)
+st_crs(sf_preschool3414)
+```
+
+# Calculation of Total Area of 5 meter reserve land on both sides of the cycling track
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+sf_buffer_cycling <- st_buffer(sf_cyclingPath, dist = 5, nQuadSegs = 30)
+sf_buffer_cycling$AREA <- st_area(sf_buffer_cycling)
+sum(sf_buffer_cycling$AREA)
+```

@@ -1,0 +1,5 @@
+"0","ggplot(data=dependent_variables, "
+"0","             aes_string(x= ""GDP_CAPITA"")) +"
+"0","  geom_histogram(bins=20, "
+"0","                 color=""black"", "
+"0","                 fill=""light blue"")"

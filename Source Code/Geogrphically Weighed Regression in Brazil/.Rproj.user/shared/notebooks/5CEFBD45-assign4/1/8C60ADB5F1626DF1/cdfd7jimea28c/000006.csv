@@ -1,0 +1,6 @@
+"0","data$IBGE_PLANTED_AREA <- data$IBGE_PLANTED_AREA * 10000"
+"0","data$AREA <- data$AREA * 1000000"
+"0","data <- data %>%"
+"0","  mutate(PLANTED_AREA_PERCENTAGE=(IBGE_PLANTED_AREA/AREA)*100)"
+"0",""
+"0","data$IBGE_PLANTED_AREA <- NULL"

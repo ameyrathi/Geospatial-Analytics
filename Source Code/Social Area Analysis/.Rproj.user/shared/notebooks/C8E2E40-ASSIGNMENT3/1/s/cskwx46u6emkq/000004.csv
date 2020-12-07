@@ -1,0 +1,7 @@
+"0","data_by_subzones <- left_join(data_by_subzones,one)"
+"2","Joining, by = ""subzone""
+"
+"2","Column `subzone` joining factor and character vector, coercing into character vector"
+"0","data_by_subzones <- left_join(data_by_subzones,three)"
+"2","Joining, by = ""subzone""
+"

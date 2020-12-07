@@ -1,0 +1,17 @@
+"0","#brazil_cities <- read.csv2(""data/aspatial/BRAZIL_CITIES.csv"")"
+"0","brazil_cities <- read_delim(file = ""data/aspatial/BRAZIL_CITIES.csv"", delim = "";"")"
+"2","Parsed with column specification:
+cols(
+  .default = col_double(),
+  CITY = [31mcol_character()[39m,
+  STATE = [31mcol_character()[39m,
+  AREA = [32mcol_number()[39m,
+  REGIAO_TUR = [31mcol_character()[39m,
+  CATEGORIA_TUR = [31mcol_character()[39m,
+  RURAL_URBAN = [31mcol_character()[39m,
+  GVA_MAIN = [31mcol_character()[39m
+)
+"
+"2","See spec(...) for full column specifications.
+"
+"0","metadata <- read.csv2(""data/aspatial/Data_Dictionary.csv"")"

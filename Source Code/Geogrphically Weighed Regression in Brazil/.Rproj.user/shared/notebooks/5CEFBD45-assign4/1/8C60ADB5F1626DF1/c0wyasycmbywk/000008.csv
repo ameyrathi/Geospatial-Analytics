@@ -1,0 +1,2 @@
+"0","# QQ plot"
+"0","ggqqplot(gdp_capita.lmr$residuals)"

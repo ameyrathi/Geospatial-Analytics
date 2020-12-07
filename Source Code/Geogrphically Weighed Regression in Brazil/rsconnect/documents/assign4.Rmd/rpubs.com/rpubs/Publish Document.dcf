@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/622102/3c2019a32316457ebb65fa18399409c6
+bundleId: https://api.rpubs.com/api/v1/document/622102/3c2019a32316457ebb65fa18399409c6
+url: http://rpubs.com/ameyrathi/622102
+when: 1590952382.98318

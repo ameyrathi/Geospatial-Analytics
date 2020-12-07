@@ -1,0 +1,4 @@
+"0","municipality <- read_municipality(year=2016)"
+"2","Error in curl::curl_fetch_disk(url, x$path, handle = handle) : 
+  SSL certificate problem: certificate has expired
+"

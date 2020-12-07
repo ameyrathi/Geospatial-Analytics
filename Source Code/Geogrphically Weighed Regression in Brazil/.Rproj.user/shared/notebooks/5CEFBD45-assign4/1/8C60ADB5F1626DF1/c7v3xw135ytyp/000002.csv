@@ -1,0 +1,2 @@
+"0","nb <- dnearneigh(coordinates(data.sp), 0, 374885, longlat = TRUE)"
+"2","Coordinates are not geographical: longlat argument wrong"

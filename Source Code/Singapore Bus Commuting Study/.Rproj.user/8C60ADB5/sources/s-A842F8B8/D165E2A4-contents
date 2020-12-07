@@ -1,0 +1,142 @@
+---
+title: "exe03"
+author: "Amey Rathi"
+date: "4/30/2020"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+packages <- c('sf', 'tmap', 'tidyverse')
+for (p in packages){
+  if(!require(p, character.only = T)){
+    install.packages(p)
+  }
+  library(p,character.only = T)
+}
+```
+
+# Importing the data
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+sgpools <- read_csv("data/aspatial/SGPools_svy21.csv")
+```
+
+# Transform aspatial data into geospatial data by providing coordinates
+
+## This code will turn the data into a simple feauture dataframe 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+sgpools_sf <- st_as_sf(sgpools, coords = c("XCOORD", "YCOORD"),crs= 3414)
+```
+
+# Plot the Graph using tmap
+
+### Tmap can take in sp or sf
+### The map is not coded, it is directly taken from tmap 
+
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tmap_mode("plot")
+tm_shape(sgpools_sf)+
+tm_bubbles(col = "red",
+           size = 1,
+           border.col = "black",
+           border.lwd = 1)
+```
+
+## Making the bubble size propotional to the volume
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tm_shape(sgpools_sf)+
+tm_bubbles(col = "blue",
+           size = "Gp1Gp2 Winnings",
+           border.col = "black",
+           border.lwd = 0.1)
+```
+## Categorising into branch/outlet by colour 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tm_shape(sgpools_sf)+
+tm_bubbles(col = "OUTLET TYPE", 
+          alpha = 0.5,
+          size = "Gp1Gp2 Winnings",
+          border.col = "black",
+          border.lwd = 1)
+```
+## Running two simulatenous interactive maps 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tm_shape(sgpools_sf) +
+  tm_bubbles(col = "OUTLET TYPE", 
+          size = "Gp1Gp2 Winnings",
+          border.col = "black",
+          border.lwd = 1) +
+  tm_facets(by= "OUTLET TYPE",
+            nrow = 1,
+            sync = TRUE)
+```
+
+## End tmap session 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+tmap_mode("plot")
+```
+
+# Choroplath Maps Exercise 
+
+## Importing the geospatial data
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+mpsz <- st_read(dsn = "data/geospatial", 
+                layer = "MP14_SUBZONE_WEB_PL")
+```
+## Importing population data 
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+popagsex <- read_csv("data/aspatial/respopagsex2000to2018.csv")
+popagsex$SZ <- as.factor(popagsex$SZ) 
+```
+# Preparation of data by filtering year, sex, etc.
+
+## The functions are used from tidyr and deplyr packages
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+popagsex2018_male <- popagsex %>%
+  filter(Sex == "Males") %>%
+  filter(Time == 2018) %>%
+  spread(AG, Pop) %>%
+  mutate(YOUNG = `0_to_4`+`5_to_9`+`10_to_14`+
+`15_to_19`+`20_to_24`) %>%
+mutate(`ECONOMY ACTIVE` = rowSums(.[9:13])+
+rowSums(.[15:17]))%>%
+mutate(`AGED`=rowSums(.[18:22])) %>%
+mutate(`TOTAL`=rowSums(.[5:22])) %>%  
+mutate(`DEPENDENCY` = (`YOUNG` + `AGED`)
+/`ECONOMY ACTIVE`) %>%
+mutate_at(.vars = vars(PA, SZ), .funs = funs(toupper)) %>%
+select(`PA`, `SZ`, `YOUNG`, `ECONOMY ACTIVE`, `AGED`, 
+       `TOTAL`, `DEPENDENCY`) %>%
+  filter(`ECONOMY ACTIVE` > 0)
+```
+## Last step of data preparation by joining the tables 
+
+### The tables are joined at when value of Subzone_N (in mpsz) is the same as SZ (in popagesex2018)
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+mpsz_agemale2018<- left_join(mpsz,popagsex2018_male,by=c("SUBZONE_N"="SZ"))
+```
+
+# Start visualising data by using choropleth maps 
+
+### Using qtm which is an automated visualisation
+```{r eval=TRUE, echo=TRUE, message=TRUE, warning=TRUE}
+qtm(mpsz_agemale2018,fill = "YOUNG")
+```
+# Using tmap for creating choropleth maps 
+
+```{r}
+tm_shape(mpsz_agemale2018)+
+  tm_borders(col = )
+```
+
+
+
+
+

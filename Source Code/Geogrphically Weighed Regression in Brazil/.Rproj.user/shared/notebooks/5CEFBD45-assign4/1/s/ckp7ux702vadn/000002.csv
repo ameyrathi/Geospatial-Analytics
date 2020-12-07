@@ -1,0 +1,7 @@
+"0","data <- data %>%"
+"0","  mutate(ACTIVE_PERCENTAGE=(`IBGE_15-59`/IBGE_POP)*100)"
+"0","data$IBGE_1 <- NULL"
+"0","data$`IBGE_1-4`<-NULL"
+"0","data$`IBGE_5-9` <- NULL"
+"0","data$`IBGE_10-14` <- NULL"
+"0","data$`IBGE_60+` <- NULL"
